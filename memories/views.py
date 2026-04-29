@@ -5,6 +5,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Q
@@ -12,12 +13,29 @@ from django.http import FileResponse, Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from .forms import MemoirForm
+from .forms import MemoirForm, RegisterForm
 from .models import Memoir, MemoirMedia
 
 
 IMAGE_EXTENSIONS = {".apng", ".avif", ".gif", ".heic", ".jpeg", ".jpg", ".png", ".webp"}
 VIDEO_EXTENSIONS = {".m4v", ".mov", ".mp4", ".mpeg", ".webm"}
+
+
+def register(request: HttpRequest) -> HttpResponse:
+    if request.user.is_authenticated:
+        return redirect("memoir_list")
+
+    if request.method == "POST":
+        form = RegisterForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            messages.success(request, "注册成功，欢迎来到你的回忆库。")
+            return redirect("memoir_list")
+    else:
+        form = RegisterForm()
+
+    return render(request, "registration/register.html", {"form": form})
 
 
 def classify_upload(upload) -> tuple[str, str] | None:

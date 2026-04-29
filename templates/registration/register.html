@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}注册 · 前任回忆录{% endblock %}
+
+{% block body %}
+  <main class="login-shell">
+    <section class="login-scene" aria-label="前任回忆录注册">
+      <header class="login-topline">
+        <div class="login-brand">
+          <span>忆</span>
+          <strong>忆往昔</strong>
+        </div>
+        <span class="login-status">Create private archive</span>
+      </header>
+
+      <section class="login-copy">
+        <p class="eyebrow">Private Archive</p>
+        <h1>从这里开始</h1>
+        <p>注册后，你可以保存文字、照片和视频，慢慢整理属于自己的回忆。</p>
+        <div class="login-notes" aria-label="支持内容">
+          <span>私人账号</span>
+          <span>本地存储</span>
+          <span>媒体上传</span>
+        </div>
+      </section>
+
+      <section class="login-card">
+        <p class="card-eyebrow">Create account</p>
+        <h2>注册账号</h2>
+        <p>创建后会自动登录。</p>
+
+        <form method="post">
+          {% csrf_token %}
+          {% if form.non_field_errors %}
+            <div class="message">{{ form.non_field_errors }}</div>
+          {% endif %}
+          {% for field in form %}
+            <div class="field">
+              <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% for error in field.errors %}
+                <span class="field-error">{{ error }}</span>
+              {% endfor %}
+            </div>
+          {% endfor %}
+          <button class="button" type="submit">注册并进入</button>
+        </form>
+        <p class="auth-switch">已有账号？<a href="{% url 'login' %}">返回登录</a></p>
+      </section>
+    </section>
+  </main>
+{% endblock %}

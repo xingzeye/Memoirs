@@ -34,6 +34,29 @@ class MemoirViewTests(TestCase):
             self.assertEqual(response.status_code, 302)
             self.assertIn(reverse("login"), response["Location"])
 
+    def test_login_page_links_to_register(self):
+        response = self.client.get(reverse("login"))
+
+        self.assertContains(response, reverse("register"))
+        self.assertContains(response, "立即注册")
+
+    def test_register_creates_user_and_logs_in(self):
+        response = self.client.post(
+            reverse("register"),
+            {
+                "username": "new_owner",
+                "email": "new@example.com",
+                "password1": "StrongerPass12345",
+                "password2": "StrongerPass12345",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("memoir_list"))
+        self.assertTrue(get_user_model().objects.filter(username="new_owner").exists())
+        response = self.client.get(reverse("memoir_list"))
+        self.assertEqual(response.status_code, 200)
+
     def test_create_memoir_with_media(self):
         self.login()
         upload = SimpleUploadedFile("photo.jpg", b"fake image bytes", content_type="image/jpeg")

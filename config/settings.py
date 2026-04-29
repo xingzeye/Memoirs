@@ -43,7 +43,7 @@ ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "127.0.0.1,localhost")
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 
 INSTALLED_APPS = [
-    "jazzmin",
+    "simpleui",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -118,42 +118,32 @@ LOGOUT_REDIRECT_URL = "login"
 FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 1024
 
-JAZZMIN_SETTINGS = {
-    "site_title": "前任回忆录后台",
-    "site_header": "前任回忆录",
-    "site_brand": "前任回忆录",
-    "welcome_sign": "管理你的私人回忆档案",
-    "copyright": "Private Archive",
-    "search_model": ["memories.Memoir"],
-    "topmenu_links": [
-        {"name": "回忆库", "url": "memoir_list", "permissions": ["auth.view_user"]},
-        {"model": "memories.Memoir"},
+SIMPLEUI_HOME_INFO = False
+SIMPLEUI_ANALYSIS = False
+SIMPLEUI_STATIC_OFFLINE = True
+SIMPLEUI_LOGO = False
+SIMPLEUI_CONFIG = {
+    "system_keep": False,
+    "menu_display": ["回忆管理", "认证和授权"],
+    "dynamic": False,
+    "menus": [
+        {
+            "app": "memories",
+            "name": "回忆管理",
+            "icon": "fas fa-book-open",
+            "models": [
+                {"name": "回忆", "icon": "fas fa-book", "url": "memories/memoir/"},
+                {"name": "媒体文件", "icon": "fas fa-photo-video", "url": "memories/memoirmedia/"},
+            ],
+        },
+        {
+            "app": "auth",
+            "name": "认证和授权",
+            "icon": "fas fa-users-cog",
+            "models": [
+                {"name": "用户", "icon": "fas fa-user", "url": "auth/user/"},
+                {"name": "用户组", "icon": "fas fa-users", "url": "auth/group/"},
+            ],
+        },
     ],
-    "show_sidebar": True,
-    "navigation_expanded": True,
-    "hide_apps": [],
-    "hide_models": [],
-    "icons": {
-        "auth": "fas fa-users-cog",
-        "auth.user": "fas fa-user",
-        "auth.Group": "fas fa-users",
-        "memories.Memoir": "fas fa-book-open",
-        "memories.MemoirMedia": "fas fa-photo-video",
-    },
-    "order_with_respect_to": ["memories", "auth"],
-}
-
-JAZZMIN_UI_TWEAKS = {
-    "theme": "flatly",
-    "navbar": "navbar-white navbar-light",
-    "sidebar": "sidebar-light-teal",
-    "accent": "accent-teal",
-    "button_classes": {
-        "primary": "btn btn-primary",
-        "secondary": "btn btn-outline-secondary",
-        "info": "btn btn-info",
-        "warning": "btn btn-warning",
-        "danger": "btn btn-danger",
-        "success": "btn btn-success",
-    },
 }
