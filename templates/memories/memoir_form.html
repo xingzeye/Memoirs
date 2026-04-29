@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}{% if mode == "edit" %}修改回忆{% else %}新增回忆{% endif %} · 前任回忆录{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <div>
+      <p class="eyebrow">{% if mode == "edit" %}Edit Memory{% else %}New Memory{% endif %}</p>
+      <h1>{% if mode == "edit" %}修改回忆{% else %}新增回忆{% endif %}</h1>
+      <p>
+        {% if mode == "edit" %}
+          调整文字、日期、标签，也可以补充或移除照片和视频。
+        {% else %}
+          把那些照片、视频和没说完的话，安静地收进你的私人档案。
+        {% endif %}
+      </p>
+    </div>
+  </section>
+
+  <form class="form-panel" method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="form-errors">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="field">
+      <label for="{{ form.title.id_for_label }}">标题</label>
+      {{ form.title }}
+      {% for error in form.title.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+    </div>
+
+    <div class="two-fields">
+      <div class="field">
+        <label for="{{ form.memory_date.id_for_label }}">日期</label>
+        {{ form.memory_date }}
+        {% for error in form.memory_date.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+      </div>
+      <div class="field">
+        <label for="{{ form.location.id_for_label }}">地点</label>
+        {{ form.location }}
+        {% for error in form.location.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="{{ form.mood.id_for_label }}">心情标签</label>
+      {{ form.mood }}
+      {% for error in form.mood.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+    </div>
+
+    <div class="field">
+      <label for="{{ form.story.id_for_label }}">正文</label>
+      {{ form.story }}
+      {% for error in form.story.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+    </div>
+
+    {% if existing_media %}
+      <section class="existing-media">
+        <div>
+          <h2>已有媒体</h2>
+          <p>勾选后保存，会从这段回忆里移除对应文件。</p>
+        </div>
+        <div class="existing-media-grid">
+          {% for media in existing_media %}
+            <label class="existing-media-item">
+              {% if media.media_type == "video" %}
+                <video src="{{ media.protected_url }}" muted preload="metadata"></video>
+              {% else %}
+                <img src="{{ media.protected_url }}" alt="{{ media.original_filename }}" loading="lazy">
+              {% endif %}
+              <span>
+                <input type="checkbox" name="delete_media" value="{{ media.id }}">
+                删除
+              </span>
+            </label>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    <label class="dropzone">
+      <input data-file-input type="file" name="media" accept="image/*,video/*" multiple>
+      <span>
+        <strong>{% if mode == "edit" %}追加照片或视频{% else %}选择照片或视频{% endif %}</strong>
+        支持一次上传多个文件
+      </span>
+    </label>
+    <ul class="file-list" data-file-list></ul>
+
+    <div class="form-actions">
+      <button class="button" type="submit">{% if mode == "edit" %}保存修改{% else %}保存回忆{% endif %}</button>
+      <a class="link-button" href="{% url 'memoir_list' %}">返回</a>
+    </div>
+  </form>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}登录 · 前任回忆录{% endblock %}
+
+{% block body %}
+  <main class="login-shell">
+    <section class="login-scene" aria-label="前任回忆录登录">
+      <header class="login-topline">
+        <div class="login-brand">
+          <span>忆</span>
+          <strong>前任回忆录</strong>
+        </div>
+        <span class="login-status">Local private archive</span>
+      </header>
+
+      <section class="login-copy">
+        <p class="eyebrow">Private Archive</p>
+        <h1>把回忆收好</h1>
+        <p>只给自己看的地方，用来保存照片、视频和那些很久以后才适合翻开的片段。</p>
+        <div class="login-notes" aria-label="支持内容">
+          <span>照片</span>
+          <span>视频</span>
+          <span>文字</span>
+        </div>
+      </section>
+
+      <section class="login-card">
+        <p class="card-eyebrow">Welcome back</p>
+        <h2>欢迎回来</h2>
+        <p>登录后进入你的私人回忆库。</p>
+
+        {% if form.errors %}
+          <div class="message">用户名或密码不正确。</div>
+        {% endif %}
+
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ next }}">
+          <div class="field">
+            <label for="{{ form.username.id_for_label }}">用户名</label>
+            {{ form.username }}
+          </div>
+          <div class="field">
+            <label for="{{ form.password.id_for_label }}">密码</label>
+            {{ form.password }}
+          </div>
+          <button class="button" type="submit">登录</button>
+        </form>
+      </section>
+    </section>
+  </main>
+{% endblock %}

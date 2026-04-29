@@ -1,0 +1,43 @@
+{% load static %}
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}前任回忆录{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  </head>
+  <body>
+    {% block body %}
+      <main class="app-shell">
+        <nav class="app-nav">
+          <div class="brand" aria-label="前任回忆录">
+            <span class="brand-mark">忆</span>
+            <span>忆往昔</span>
+          </div>
+          {% if request.user.is_authenticated %}
+            <div class="nav-actions">
+              <a class="link-button" href="{% url 'memoir_list' %}">回忆库</a>
+              <a class="link-button" href="{% url 'memoir_create' %}">新增回忆</a>
+              <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button class="link-button" type="submit">退出</button>
+              </form>
+            </div>
+          {% endif %}
+        </nav>
+
+        {% if messages %}
+          <section class="messages">
+            {% for message in messages %}
+              <div class="message">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+      </main>
+      <script src="{% static 'js/app.js' %}"></script>
+    {% endblock %}
+  </body>
+</html>

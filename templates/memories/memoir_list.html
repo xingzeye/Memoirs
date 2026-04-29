@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}回忆库 · 前任回忆录{% endblock %}
+
+{% block content %}
+  <section class="hero archive-hero">
+    <div>
+      <h1>独属于我们的回忆</h1>
+    </div>
+    <div class="stats" aria-label="回忆统计">
+      <div class="stat">
+        <strong>{{ memoir_count }}</strong>
+        <span>回忆条目</span>
+      </div>
+      <div class="stat">
+        <strong>{{ media_count }}</strong>
+        <span>媒体文件</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="toolbar">
+    <form method="get">
+      <input type="search" name="q" value="{{ query }}" placeholder="搜索标题、地点、正文或心情">
+      {% if active_mood %}<input type="hidden" name="mood" value="{{ active_mood }}">{% endif %}
+      <div class="mood-tabs">
+        <a class="{% if not active_mood %}active{% endif %}" href="{% url 'memoir_list' %}{% if query %}?q={{ query|urlencode }}{% endif %}">全部</a>
+        {% for mood in mood_choices %}
+          <a
+            class="{% if mood == active_mood %}active{% endif %}"
+            href="{% url 'memoir_list' %}?mood={{ mood|urlencode }}{% if query %}&q={{ query|urlencode }}{% endif %}"
+          >{{ mood }}</a>
+        {% endfor %}
+      </div>
+      <button class="link-button" type="submit">搜索</button>
+    </form>
+  </section>
+
+  {% if memoirs %}
+    <section class="timeline">
+      {% for memoir in memoirs %}
+        <article class="memoir-card">
+          <div class="memoir-head">
+            <div>
+              <time>
+                {% if memoir.memory_date %}
+                  {{ memoir.memory_date|date:"Y年n月j日" }}
+                {% else %}
+                  某一天
+                {% endif %}
+              </time>
+              <h2>{{ memoir.title }}</h2>
+            </div>
+            <div class="card-actions">
+              <a class="link-button" href="{% url 'memoir_update' memoir.pk %}">修改</a>
+              <form method="post" action="{% url 'memoir_delete' memoir.pk %}" onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');">
+                {% csrf_token %}
+                <button class="danger-button" type="submit">删除</button>
+              </form>
+            </div>
+          </div>
+
+          {% if memoir.location or memoir.mood %}
+            <div class="meta-row">
+              {% if memoir.location %}<span>{{ memoir.location }}</span>{% endif %}
+              {% if memoir.mood %}<span>{{ memoir.mood }}</span>{% endif %}
+            </div>
+          {% endif %}
+
+          {% if memoir.story %}
+            <p class="story">{{ memoir.story }}</p>
+          {% endif %}
+
+          {% if memoir.media_items.all %}
+            <div class="media-grid">
+              {% for media in memoir.media_items.all %}
+                <button
+                  class="media-tile"
+                  type="button"
+                  data-media-url="{{ media.protected_url }}"
+                  data-media-type="{{ media.media_type }}"
+                  data-media-name="{{ media.original_filename }}"
+                >
+                  {% if media.media_type == "video" %}
+                    <video src="{{ media.protected_url }}" muted preload="metadata"></video>
+                    <span>播放</span>
+                  {% else %}
+                    <img src="{{ media.protected_url }}" alt="{{ media.original_filename }}" loading="lazy">
+                    <span>查看</span>
+                  {% endif %}
+                </button>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="empty-state">
+      <p>还没有回忆。先新增一段吧。</p>
+    </section>
+  {% endif %}
+
+  <section class="preview-backdrop" data-preview>
+    <div class="preview-dialog">
+      <button class="close-preview" type="button" data-preview-close aria-label="关闭">×</button>
+      <div data-preview-dialog></div>
+      <p class="preview-caption" data-preview-caption></p>
+    </div>
+  </section>
+{% endblock %}
