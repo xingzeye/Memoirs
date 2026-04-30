@@ -153,7 +153,8 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+media_root = os.environ.get("MEDIA_ROOT", "").strip()
+MEDIA_ROOT = Path(media_root) if media_root else BASE_DIR / "media"
 
 STORAGES = {
     "default": {
@@ -167,37 +168,6 @@ STORAGES = {
         ),
     },
 }
-
-R2_REQUIRED_SETTINGS = {
-    "R2_BUCKET_NAME": os.environ.get("R2_BUCKET_NAME", "").strip(),
-    "R2_ENDPOINT_URL": os.environ.get("R2_ENDPOINT_URL", "").strip(),
-    "R2_ACCESS_KEY_ID": os.environ.get("R2_ACCESS_KEY_ID", "").strip(),
-    "R2_SECRET_ACCESS_KEY": os.environ.get("R2_SECRET_ACCESS_KEY", "").strip(),
-}
-USE_R2_STORAGE = any(R2_REQUIRED_SETTINGS.values()) or not DEBUG
-if USE_R2_STORAGE:
-    if find_spec("storages") is None:
-        raise ImproperlyConfigured("django-storages must be installed when R2 media storage is enabled.")
-
-    missing_r2_settings = [key for key, value in R2_REQUIRED_SETTINGS.items() if not value]
-    if missing_r2_settings:
-        missing = ", ".join(missing_r2_settings)
-        raise ImproperlyConfigured(f"R2 media storage is enabled but missing: {missing}.")
-
-    STORAGES["default"] = {
-        "BACKEND": "storages.backends.s3.S3Storage",
-    }
-    AWS_STORAGE_BUCKET_NAME = R2_REQUIRED_SETTINGS["R2_BUCKET_NAME"]
-    AWS_S3_ENDPOINT_URL = R2_REQUIRED_SETTINGS["R2_ENDPOINT_URL"]
-    AWS_ACCESS_KEY_ID = R2_REQUIRED_SETTINGS["R2_ACCESS_KEY_ID"]
-    AWS_SECRET_ACCESS_KEY = R2_REQUIRED_SETTINGS["R2_SECRET_ACCESS_KEY"]
-    AWS_S3_REGION_NAME = os.environ.get("R2_REGION", "auto")
-    AWS_S3_SIGNATURE_VERSION = "s3v4"
-    AWS_S3_ADDRESSING_STYLE = "path"
-    AWS_DEFAULT_ACL = None
-    AWS_QUERYSTRING_AUTH = True
-    AWS_QUERYSTRING_EXPIRE = env_int("R2_QUERYSTRING_EXPIRE", 3600)
-    AWS_S3_FILE_OVERWRITE = False
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

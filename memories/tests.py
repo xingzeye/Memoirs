@@ -168,21 +168,3 @@ class MemoirViewTests(TestCase):
         response = self.client.get(media.protected_url)
         self.assertEqual(response.status_code, 200)
         response.close()
-
-    @override_settings(USE_R2_STORAGE=True)
-    def test_protected_media_redirects_to_storage_url_when_r2_enabled(self):
-        memoir = Memoir.objects.create(title="云端媒体", owner=self.user)
-        media = MemoirMedia.objects.create(
-            memoir=memoir,
-            file=SimpleUploadedFile("photo.jpg", b"fake image bytes", content_type="image/jpeg"),
-            original_filename="photo.jpg",
-            media_type=MemoirMedia.MediaType.IMAGE,
-            mime_type="image/jpeg",
-            size=16,
-        )
-
-        self.login()
-        response = self.client.get(media.protected_url)
-
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response["Location"], media.file.url)

@@ -180,11 +180,6 @@ def protected_media(request: HttpRequest, file_path: str) -> HttpResponse:
     if media.memoir.owner_id != request.user.id and not request.user.is_staff:
         raise Http404
 
-    if settings.USE_R2_STORAGE:
-        if not media.file:
-            raise Http404
-        return redirect(media.file.url)
-
     media_root = Path(settings.MEDIA_ROOT).resolve()
     target = (media_root / media.file.name).resolve()
     try:

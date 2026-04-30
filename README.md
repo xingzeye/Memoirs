@@ -47,16 +47,15 @@ http://127.0.0.1:8017/admin/
 
 上传文件默认保存在 `media/`，数据库默认是 `db.sqlite3`。
 
-## Render + Neon + Cloudflare R2 部署
+## Render + Neon + Render Disk 部署
 
-公网部署使用 Render 免费 Web 服务、Neon PostgreSQL 和 Cloudflare R2 私有媒体桶。不要上传本地的 `db.sqlite3`、`media/` 或 `.env`。
+公网部署使用 Render 付费 Web 服务、Neon PostgreSQL 和 Render Persistent Disk。不要上传本地的 `db.sqlite3`、`media/` 或 `.env`。
 
 1. 在 Neon 创建 PostgreSQL 项目，区域建议选择 Singapore，复制带 `sslmode=require` 的连接字符串。
-2. 在 Cloudflare R2 创建私有 bucket，例如 `memoirs-media`，生成 S3 兼容访问密钥。
-3. 在 Render 用 `render.yaml` 创建 Blueprint Web Service。
+2. 在 Render 用 `render.yaml` 创建 Blueprint Web Service。
+3. Render 会创建挂载到 `/var/data` 的持久磁盘，生产媒体文件写入 `/var/data/media`。
 4. 在 Render 环境变量中填写：
    - `DATABASE_URL`：Neon 连接字符串。
-   - `R2_BUCKET_NAME`、`R2_ENDPOINT_URL`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`。
    - `DJANGO_SUPERUSER_USERNAME`、`DJANGO_SUPERUSER_EMAIL`、`DJANGO_SUPERUSER_PASSWORD`。
 5. 首次部署后访问 Render 默认域名，使用超级用户登录 `/admin/` 创建普通账号。
 
