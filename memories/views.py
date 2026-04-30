@@ -22,6 +22,9 @@ VIDEO_EXTENSIONS = {".m4v", ".mov", ".mp4", ".mpeg", ".webm"}
 
 
 def register(request: HttpRequest) -> HttpResponse:
+    if not settings.ALLOW_PUBLIC_REGISTRATION:
+        raise Http404
+
     if request.user.is_authenticated:
         return redirect("memoir_list")
 
@@ -172,10 +175,15 @@ def memoir_delete(request: HttpRequest, pk) -> HttpResponse:
 
 
 @login_required
-def protected_media(request: HttpRequest, file_path: str) -> FileResponse:
+def protected_media(request: HttpRequest, file_path: str) -> HttpResponse:
     media = get_object_or_404(MemoirMedia.objects.select_related("memoir"), file=file_path)
     if media.memoir.owner_id != request.user.id and not request.user.is_staff:
         raise Http404
+
+    if settings.USE_R2_STORAGE:
+        if not media.file:
+            raise Http404
+        return redirect(media.file.url)
 
     media_root = Path(settings.MEDIA_ROOT).resolve()
     target = (media_root / media.file.name).resolve()
