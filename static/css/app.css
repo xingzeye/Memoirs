@@ -1497,7 +1497,7 @@ textarea:focus {
 .login-scene {
   width: min(1180px, 100%);
   min-height: min(720px, calc(100vh - 72px));
-  grid-template-columns: minmax(0, 540px) minmax(360px, 430px);
+  grid-template-columns: minmax(0, 650px) minmax(360px, 430px);
   column-gap: 96px;
 }
 
