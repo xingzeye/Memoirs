@@ -41,7 +41,9 @@
           </div>
           <button class="button" type="submit">登录</button>
         </form>
-        <p class="auth-switch">还没有账号？<a href="{% url 'register' %}">立即注册</a></p>
+        {% if allow_public_registration %}
+          <p class="auth-switch">还没有账号？<a href="{% url 'register' %}">立即注册</a></p>
+        {% endif %}
       </section>
     </section>
   </main>

@@ -6,6 +6,7 @@
   <section class="hero archive-hero">
     <div>
       <h1>独属于我们的回忆</h1>
+      <p>把散落的照片、地点和心情，安静地归档在这里。</p>
     </div>
     <div class="stats" aria-label="回忆统计">
       <div class="stat">
@@ -20,8 +21,10 @@
   </section>
 
   <section class="toolbar">
-    <form method="get">
-      <input type="search" name="q" value="{{ query }}" placeholder="搜索标题、地点、正文或心情">
+    <form class="toolbar-form" method="get">
+      <div class="search-field">
+        <input type="search" name="q" value="{{ query }}" placeholder="搜索标题、地点、正文或心情" aria-label="搜索回忆">
+      </div>
       {% if active_mood %}<input type="hidden" name="mood" value="{{ active_mood }}">{% endif %}
       <div class="mood-tabs">
         <a class="{% if not active_mood %}active{% endif %}" href="{% url 'memoir_list' %}{% if query %}?q={{ query|urlencode }}{% endif %}">全部</a>
@@ -97,7 +100,11 @@
     </section>
   {% else %}
     <section class="empty-state">
-      <p>还没有回忆。先新增一段吧。</p>
+      <div>
+        <h2>还没有回忆</h2>
+        <p>先新增一段吧，把照片、地点和没说完的话慢慢收好。</p>
+        <a class="button" href="{% url 'memoir_create' %}">新增回忆</a>
+      </div>
     </section>
   {% endif %}
 

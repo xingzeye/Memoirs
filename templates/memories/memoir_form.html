@@ -3,7 +3,7 @@
 {% block title %}{% if mode == "edit" %}修改回忆{% else %}新增回忆{% endif %} · 前任回忆录{% endblock %}
 
 {% block content %}
-  <section class="hero">
+  <section class="hero form-hero">
     <div>
       <p class="eyebrow">{% if mode == "edit" %}Edit Memory{% else %}New Memory{% endif %}</p>
       <h1>{% if mode == "edit" %}修改回忆{% else %}新增回忆{% endif %}</h1>
@@ -17,7 +17,7 @@
     </div>
   </section>
 
-  <form class="form-panel" method="post" enctype="multipart/form-data">
+  <form class="form-panel memoir-editor" method="post" enctype="multipart/form-data">
     {% csrf_token %}
     {% if form.non_field_errors %}
       <div class="form-errors">{{ form.non_field_errors }}</div>

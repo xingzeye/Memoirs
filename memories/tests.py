@@ -1,4 +1,3 @@
-import shutil
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
@@ -14,13 +13,7 @@ TEST_MEDIA_ROOT = Path(__file__).resolve().parents[1] / ".test-media"
 
 @override_settings(MEDIA_ROOT=TEST_MEDIA_ROOT)
 class MemoirViewTests(TestCase):
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        shutil.rmtree(TEST_MEDIA_ROOT, ignore_errors=True)
-
     def setUp(self):
-        shutil.rmtree(TEST_MEDIA_ROOT, ignore_errors=True)
         TEST_MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
         self.user = get_user_model().objects.create_user(username="owner", password="secret12345")
         self.other_user = get_user_model().objects.create_user(username="other", password="secret12345")
@@ -39,6 +32,16 @@ class MemoirViewTests(TestCase):
 
         self.assertContains(response, reverse("register"))
         self.assertContains(response, "立即注册")
+
+    @override_settings(ALLOW_PUBLIC_REGISTRATION=False)
+    def test_public_registration_can_be_disabled(self):
+        response = self.client.get(reverse("register"))
+
+        self.assertEqual(response.status_code, 404)
+
+        response = self.client.get(reverse("login"))
+        self.assertNotContains(response, reverse("register"))
+        self.assertNotContains(response, "立即注册")
 
     def test_register_creates_user_and_logs_in(self):
         response = self.client.post(
@@ -165,3 +168,21 @@ class MemoirViewTests(TestCase):
         response = self.client.get(media.protected_url)
         self.assertEqual(response.status_code, 200)
         response.close()
+
+    @override_settings(USE_R2_STORAGE=True)
+    def test_protected_media_redirects_to_storage_url_when_r2_enabled(self):
+        memoir = Memoir.objects.create(title="云端媒体", owner=self.user)
+        media = MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("photo.jpg", b"fake image bytes", content_type="image/jpeg"),
+            original_filename="photo.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/jpeg",
+            size=16,
+        )
+
+        self.login()
+        response = self.client.get(media.protected_url)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], media.file.url)
