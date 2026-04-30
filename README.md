@@ -47,19 +47,23 @@ http://127.0.0.1:8017/admin/
 
 上传文件默认保存在 `media/`，数据库默认是 `db.sqlite3`。
 
-## Render + Neon + Render Disk 部署
+## Zeabur + Neon + Volume 部署
 
-公网部署使用 Render 付费 Web 服务、Neon PostgreSQL 和 Render Persistent Disk。不要上传本地的 `db.sqlite3`、`media/` 或 `.env`。
+公网部署使用 Zeabur、Neon PostgreSQL 和 Zeabur Volume。不要上传本地的 `db.sqlite3`、`media/` 或 `.env`。
 
 1. 在 Neon 创建 PostgreSQL 项目，区域建议选择 Singapore，复制带 `sslmode=require` 的连接字符串。
-2. 在 Render 用 `render.yaml` 创建 Blueprint Web Service。
-3. Render 会创建挂载到 `/var/data` 的持久磁盘，生产媒体文件写入 `/var/data/media`。
-4. 在 Render 环境变量中填写：
+2. 在 Zeabur 新建项目，添加 GitHub 服务，选择本仓库和部署分支。
+3. 在服务的 Volumes 页挂载 Volume，`Mount Directory` 填 `/data`。
+4. 在 Zeabur 环境变量中填写：
    - `DATABASE_URL`：Neon 连接字符串。
+   - `DEBUG=False`
+   - `ALLOW_PUBLIC_REGISTRATION=False`
+   - `MEDIA_ROOT=/data/media`
+   - `SECRET_KEY`：一串足够长的随机字符串。
    - `DJANGO_SUPERUSER_USERNAME`、`DJANGO_SUPERUSER_EMAIL`、`DJANGO_SUPERUSER_PASSWORD`。
-5. 首次部署后访问 Render 默认域名，使用超级用户登录 `/admin/` 创建普通账号。
+5. 首次部署后访问 Zeabur 分配的域名，使用超级用户登录 `/admin/` 创建普通账号。
 
-生产默认关闭公开注册：`ALLOW_PUBLIC_REGISTRATION=False`。如果明确要开放注册，可以在 Render 中改成 `True`。
+生产默认关闭公开注册：`ALLOW_PUBLIC_REGISTRATION=False`。如果明确要开放注册，可以在 Zeabur 中改成 `True`。
 
 ## 验证
 

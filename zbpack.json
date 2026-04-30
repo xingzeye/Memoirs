@@ -1,0 +1,8 @@
+{
+  "python": {
+    "version": "3.12",
+    "entry": "manage.py",
+    "package_manager": "pip"
+  },
+  "start_command": "mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py ensure_superuser && _startup"
+}

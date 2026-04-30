@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from importlib.util import find_spec
 from pathlib import Path
+from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -50,6 +51,12 @@ def append_unique(items: list[str], value: str) -> None:
         items.append(value)
 
 
+def append_trusted_origin_from_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.netloc:
+        append_unique(CSRF_TRUSTED_ORIGINS, f"{parsed.scheme}://{parsed.netloc}")
+
+
 load_local_env()
 
 DEBUG = env_bool("DEBUG", True)
@@ -68,6 +75,17 @@ render_external_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "").strip(
 if render_external_hostname:
     append_unique(ALLOWED_HOSTS, render_external_hostname)
     append_unique(CSRF_TRUSTED_ORIGINS, f"https://{render_external_hostname}")
+
+zeabur_web_domain = os.environ.get("ZEABUR_WEB_DOMAIN", "").strip()
+if zeabur_web_domain:
+    append_unique(ALLOWED_HOSTS, zeabur_web_domain)
+    append_unique(CSRF_TRUSTED_ORIGINS, f"https://{zeabur_web_domain}")
+
+zeabur_web_url = os.environ.get("ZEABUR_WEB_URL", "").strip()
+if zeabur_web_url:
+    parsed_zeabur_url = urlparse(zeabur_web_url)
+    append_unique(ALLOWED_HOSTS, parsed_zeabur_url.netloc)
+    append_trusted_origin_from_url(zeabur_web_url)
 
 INSTALLED_APPS = [
     "simpleui",
