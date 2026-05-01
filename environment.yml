@@ -8,6 +8,7 @@ dependencies:
   - pip:
       - Django>=5.0,<6.0
       - Pillow>=10.0
+      - qrcode[pil]>=7.4
       - dj-database-url>=2.2
       - django-simpleui>=2026.1
       - gunicorn>=22.0

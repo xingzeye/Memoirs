@@ -19,6 +19,7 @@
 
   <form class="form-panel memoir-editor" method="post" enctype="multipart/form-data">
     {% csrf_token %}
+    <input type="hidden" name="mobile_upload_token" value="{{ mobile_upload_session.token }}">
     {% if form.non_field_errors %}
       <div class="form-errors">{{ form.non_field_errors }}</div>
     {% endif %}
@@ -86,6 +87,34 @@
       </span>
     </label>
     <ul class="file-list" data-file-list></ul>
+
+    <section class="mobile-upload-panel" data-mobile-upload data-status-url="{{ mobile_upload_status_url }}">
+      <div class="mobile-upload-copy">
+        <p class="eyebrow">Mobile Upload</p>
+        <h2>用手机上传照片或视频</h2>
+        <p>
+          用手机扫码打开上传页，从手机相册选择文件。{% if mode == "edit" %}上传成功后会立即加入这段回忆。{% else %}上传成功后会先等待，电脑保存回忆时一起加入。{% endif %}
+        </p>
+        <a class="link-button" href="{{ mobile_upload_url }}" target="_blank" rel="noopener">打开手机上传页</a>
+      </div>
+      <div class="mobile-upload-qr">
+        {% if mobile_upload_qr_data_uri %}
+          <img src="{{ mobile_upload_qr_data_uri }}" alt="手机上传二维码">
+        {% else %}
+          <span>二维码依赖未安装，请复制链接到手机打开。</span>
+        {% endif %}
+      </div>
+      <div class="mobile-upload-status">
+        <strong>手机上传状态</strong>
+        <ul data-mobile-upload-list>
+          {% for item in mobile_upload_items %}
+            <li>{{ item.original_filename }}</li>
+          {% empty %}
+            <li data-empty>还没有从手机上传的文件</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </section>
 
     <div class="form-actions">
       <button class="button" type="submit">{% if mode == "edit" %}保存修改{% else %}保存回忆{% endif %}</button>

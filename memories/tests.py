@@ -1,11 +1,13 @@
+from datetime import timedelta
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
-from .models import Memoir, MemoirMedia
+from .models import Memoir, MemoirMedia, MobileUploadItem, MobileUploadSession
 
 
 TEST_MEDIA_ROOT = Path(__file__).resolve().parents[1] / ".test-media"
@@ -59,6 +61,106 @@ class MemoirViewTests(TestCase):
         self.assertTrue(get_user_model().objects.filter(username="new_owner").exists())
         response = self.client.get(reverse("memoir_list"))
         self.assertEqual(response.status_code, 200)
+
+    def test_create_page_includes_mobile_upload_session(self):
+        self.login()
+
+        response = self.client.get(reverse("memoir_create"))
+
+        self.assertEqual(response.status_code, 200)
+        session = MobileUploadSession.objects.get(owner=self.user, mode=MobileUploadSession.Mode.CREATE)
+        self.assertContains(response, session.token)
+        self.assertContains(response, reverse("mobile_upload", kwargs={"token": session.token}))
+        self.assertContains(response, "用手机上传照片或视频")
+
+    def test_mobile_upload_create_waits_until_desktop_save(self):
+        self.login()
+        self.client.get(reverse("memoir_create"))
+        session = MobileUploadSession.objects.get(owner=self.user, mode=MobileUploadSession.Mode.CREATE)
+        self.client.logout()
+
+        response = self.client.post(
+            reverse("mobile_upload", kwargs={"token": session.token}),
+            {"media": [SimpleUploadedFile("phone.jpg", b"phone image bytes", content_type="image/jpeg")]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(MobileUploadItem.objects.filter(session=session).count(), 1)
+        self.assertEqual(MemoirMedia.objects.count(), 0)
+
+        self.login()
+        response = self.client.post(
+            reverse("memoir_create"),
+            {
+                "title": "Phone backed memory",
+                "story": "created from desktop",
+                "memory_date": "2026-04-29",
+                "location": "Desk",
+                "mood": "Ready",
+                "mobile_upload_token": session.token,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        memoir = Memoir.objects.get(title="Phone backed memory")
+        media = memoir.media_items.get()
+        self.assertEqual(media.original_filename, "phone.jpg")
+        session.refresh_from_db()
+        self.assertTrue(session.is_consumed)
+
+    def test_mobile_upload_edit_adds_media_immediately(self):
+        self.login()
+        memoir = Memoir.objects.create(title="Existing", owner=self.user)
+        self.client.get(reverse("memoir_update", kwargs={"pk": memoir.pk}))
+        session = MobileUploadSession.objects.get(
+            owner=self.user,
+            mode=MobileUploadSession.Mode.EDIT,
+            memoir=memoir,
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            reverse("mobile_upload", kwargs={"token": session.token}),
+            {"media": [SimpleUploadedFile("phone.mp4", b"phone video bytes", content_type="video/mp4")]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        media = memoir.media_items.get()
+        self.assertEqual(media.media_type, MemoirMedia.MediaType.VIDEO)
+        self.assertEqual(MobileUploadItem.objects.get(session=session).media, media)
+
+    def test_mobile_upload_rejects_invalid_and_expired_tokens(self):
+        response = self.client.get(reverse("mobile_upload", kwargs={"token": "missing-token"}))
+        self.assertEqual(response.status_code, 404)
+
+        session = MobileUploadSession.objects.create(
+            owner=self.user,
+            mode=MobileUploadSession.Mode.CREATE,
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+        response = self.client.post(
+            reverse("mobile_upload", kwargs={"token": session.token}),
+            {"media": [SimpleUploadedFile("late.jpg", b"late image bytes", content_type="image/jpeg")]},
+        )
+
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(MobileUploadItem.objects.filter(session=session).exists())
+
+    def test_mobile_upload_status_is_owner_only(self):
+        self.login()
+        self.client.get(reverse("memoir_create"))
+        session = MobileUploadSession.objects.get(owner=self.user, mode=MobileUploadSession.Mode.CREATE)
+
+        self.client.logout()
+        self.client.login(username="other", password="secret12345")
+        response = self.client.get(reverse("mobile_upload_status", kwargs={"token": session.token}))
+        self.assertEqual(response.status_code, 404)
+
+        self.client.logout()
+        self.login()
+        response = self.client.get(reverse("mobile_upload_status", kwargs={"token": session.token}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 0)
 
     def test_create_memoir_with_media(self):
         self.login()

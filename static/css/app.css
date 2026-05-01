@@ -1479,6 +1479,103 @@ textarea:focus {
   padding-top: 4px;
 }
 
+.mobile-upload-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 18px;
+  align-items: center;
+  border: 1px solid rgba(216, 226, 220, 0.92);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.92);
+  padding: 18px;
+}
+
+.mobile-upload-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-upload-copy h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.18rem;
+}
+
+.mobile-upload-copy p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.mobile-upload-qr {
+  display: grid;
+  min-height: 140px;
+  place-items: center;
+  border: 1px dashed rgba(36, 127, 115, 0.4);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+  text-align: center;
+}
+
+.mobile-upload-qr img {
+  width: 128px;
+  height: 128px;
+}
+
+.mobile-upload-status {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 8px;
+}
+
+.mobile-upload-status strong,
+.mobile-upload-phone-list strong {
+  color: var(--ink);
+  font-size: 0.94rem;
+}
+
+.mobile-upload-status ul,
+.mobile-upload-phone-list ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mobile-upload-status li,
+.mobile-upload-phone-list li {
+  border: 1px solid rgba(216, 226, 220, 0.9);
+  border-radius: 8px;
+  background: rgba(247, 250, 248, 0.86);
+  padding: 9px 11px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.mobile-upload-status .muted-status {
+  color: #9f4f42;
+}
+
+.mobile-upload-phone {
+  padding: 18px;
+}
+
+.mobile-upload-phone-card {
+  width: min(520px, 100%);
+}
+
+.mobile-upload-phone-card .message {
+  width: 100%;
+}
+
+.mobile-upload-phone-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 .login-shell {
   align-items: center;
   background:
@@ -1742,6 +1839,14 @@ textarea:focus {
   .form-actions {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .mobile-upload-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-upload-qr {
+    min-height: auto;
   }
 }
 
