@@ -89,6 +89,21 @@ class MemoirViewTests(TestCase):
         self.assertEqual(MemoirMedia.objects.count(), 0)
 
         self.login()
+        response = self.client.get(reverse("mobile_upload_status", kwargs={"token": session.token}))
+        self.assertEqual(response.status_code, 200)
+        preview_url = response.json()["items"][0]["preview_url"]
+        preview_response = self.client.get(preview_url)
+        self.assertEqual(preview_response.status_code, 200)
+        self.assertEqual(preview_response["Content-Type"], "image/jpeg")
+        preview_response.close()
+
+        self.client.logout()
+        self.client.login(username="other", password="secret12345")
+        response = self.client.get(preview_url)
+        self.assertEqual(response.status_code, 404)
+
+        self.client.logout()
+        self.login()
         response = self.client.post(
             reverse("memoir_create"),
             {

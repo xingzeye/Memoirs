@@ -304,6 +304,10 @@ def mobile_upload_item_payload(item: MobileUploadItem) -> dict[str, object]:
         "type": item.media_type,
         "size": item.size,
         "uploaded_at": timezone.localtime(item.uploaded_at).strftime("%Y-%m-%d %H:%M:%S"),
+        "preview_url": reverse(
+            "mobile_upload_item_preview",
+            kwargs={"token": item.session.token, "item_id": item.id},
+        ),
     }
 
 
@@ -384,6 +388,23 @@ def mobile_upload_status(request: HttpRequest, token: str) -> JsonResponse:
             "items": items,
         }
     )
+
+
+@login_required
+@require_http_methods(["GET"])
+def mobile_upload_item_preview(request: HttpRequest, token: str, item_id: int) -> FileResponse:
+    session = get_object_or_404(MobileUploadSession, token=token, owner=request.user)
+    item = get_object_or_404(
+        MobileUploadItem.objects.select_related("media", "media__memoir"),
+        id=item_id,
+        session=session,
+    )
+    file_field = item.media.file if item.media_id else item.file
+    if not file_field:
+        raise Http404
+
+    content_type = item.mime_type or mimetypes.guess_type(file_field.name)[0] or "application/octet-stream"
+    return FileResponse(file_field.open("rb"), content_type=content_type)
 
 
 @login_required
