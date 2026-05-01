@@ -95,13 +95,12 @@
         <p>
           用手机扫码打开上传页，从手机相册选择文件。{% if mode == "edit" %}上传成功后会立即加入这段回忆。{% else %}上传成功后会先等待，电脑保存回忆时一起加入。{% endif %}
         </p>
-        <a class="link-button" href="{{ mobile_upload_url }}" target="_blank" rel="noopener">打开手机上传页</a>
       </div>
       <div class="mobile-upload-qr">
         {% if mobile_upload_qr_data_uri %}
           <img src="{{ mobile_upload_qr_data_uri }}" alt="手机上传二维码">
         {% else %}
-          <span>二维码依赖未安装，请复制链接到手机打开。</span>
+          <span>二维码依赖未安装，请在手机上打开：{{ mobile_upload_url }}</span>
         {% endif %}
       </div>
       <div class="mobile-upload-status">

@@ -1418,10 +1418,16 @@ textarea:focus {
 
 .dropzone input[type="file"] {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   opacity: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.dropzone span {
   pointer-events: none;
 }
 
