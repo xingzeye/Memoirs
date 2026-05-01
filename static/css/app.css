@@ -591,6 +591,7 @@ textarea:focus {
     linear-gradient(180deg, rgba(4, 10, 12, 0.12), rgba(4, 10, 12, 0.56)),
     radial-gradient(ellipse at center, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 62%);
   content: "";
+  pointer-events: none;
 }
 
 .login-scene {
@@ -1569,6 +1570,8 @@ textarea:focus {
 }
 
 .mobile-upload-phone-card {
+  position: relative;
+  z-index: 1;
   width: min(520px, 100%);
 }
 
