@@ -18,7 +18,6 @@
           </div>
           {% if request.user.is_authenticated %}
             <div class="nav-actions">
-              <a class="link-button" href="{% url 'memoir_list' %}">回忆库</a>
               <a class="link-button" href="{% url 'memoir_create' %}">新增回忆</a>
               <form method="post" action="{% url 'logout' %}">
                 {% csrf_token %}
