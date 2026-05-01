@@ -1,5 +1,16 @@
 # 项目认知备忘
 
+## 最近功能变更：手机扫码上传
+
+- 新增/编辑回忆页支持电脑端显示二维码，手机扫码后可免登录限时上传相册照片或视频。
+- 新增回忆时，手机上传文件先保存为 `MobileUploadItem` 临时项，电脑端保存回忆后再转为正式 `MemoirMedia`。
+- 编辑回忆时，手机上传成功后立即创建正式 `MemoirMedia`。
+- 手机上传状态通过 `/mobile-upload/<token>/status/` 轮询，电脑端会展示文件名、大小和缩略图。
+- 临时预览走 `/mobile-upload/<token>/items/<item_id>/preview/`，只允许 session 所属登录用户访问。
+- 过期临时上传可用 `python manage.py cleanup_mobile_uploads` 清理。
+- 依赖 `qrcode[pil]` 用于生成二维码，上传链接有效期由 `MOBILE_UPLOAD_SESSION_TTL_MINUTES` 控制，默认 30 分钟。
+- 修改代码时，同步更新 `PROJECT_GUIDE.md`、`README.md` 和 `AGENT.md`。
+
 ## 项目概览
 
 这是一个名为「前任回忆录」的本地优先 Django 私人回忆库。项目目标是让登录用户保存、浏览、搜索、编辑和删除自己的回忆条目，并为每条回忆附加照片或视频。
@@ -19,6 +30,7 @@
 - django-jazzmin，用于美化 Django Admin
 - Django 模板系统
 - 原生 CSS 和少量原生 JavaScript
+- qrcode，用于生成手机扫码上传入口二维码
 - SQLite 作为默认数据库
 
 依赖定义在：
@@ -37,7 +49,7 @@
 │   └── wsgi.py
 ├── memories/                # 核心应用
 │   ├── models.py            # Memoir 与 MemoirMedia 模型
-│   ├── views.py             # 列表、创建、编辑、删除、受保护媒体访问
+│   ├── views.py             # 列表、创建、编辑、删除、手机上传、受保护媒体访问
 │   ├── forms.py             # MemoirForm
 │   ├── urls.py              # 应用路由
 │   ├── admin.py             # 后台管理配置
@@ -51,7 +63,7 @@
 │       └── memoir_form.html
 ├── static/
 │   ├── css/app.css          # 页面样式
-│   └── js/app.js            # 文件列表提示与媒体预览
+│   └── js/app.js            # 文件缩略预览、手机上传状态轮询与媒体预览
 ├── media/                   # 本地上传文件目录，已被 git 忽略
 ├── manage.py
 ├── README.md

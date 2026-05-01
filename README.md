@@ -13,6 +13,8 @@
 - 按心情标签筛选
 - 为回忆上传多张图片或多个视频
 - 编辑回忆时追加或删除已有媒体文件
+- 电脑端新建/编辑回忆时可扫码，用手机相册上传照片或视频
+- 已选择和手机上传的图片/视频会在表单中显示缩略预览
 - 媒体文件通过登录保护访问
 - Django Admin 后台管理
 - 支持本地 SQLite 和生产 PostgreSQL
@@ -26,6 +28,7 @@
 - Django Templates
 - 原生 CSS / JavaScript
 - Pillow
+- qrcode
 - django-simpleui
 - dj-database-url
 - psycopg
@@ -128,6 +131,7 @@ Copy-Item .env.example .env
 | `ALLOWED_HOSTS` | 允许访问的域名，多个值用逗号分隔 |
 | `CSRF_TRUSTED_ORIGINS` | CSRF 信任来源 |
 | `ALLOW_PUBLIC_REGISTRATION` | 是否允许公开注册 |
+| `MOBILE_UPLOAD_SESSION_TTL_MINUTES` | 手机扫码上传链接有效分钟数，默认 30 |
 | `DATABASE_URL` | PostgreSQL 连接字符串 |
 | `MEDIA_ROOT` | 上传文件保存目录 |
 | `ZEABUR_WEB_DOMAIN` | Zeabur 提供的域名 |
@@ -194,6 +198,11 @@ python manage.py collectstatic
 
 ```powershell
 python manage.py ensure_superuser
+```
+
+清理过期手机上传临时文件：
+```powershell
+python manage.py cleanup_mobile_uploads
 ```
 
 ## 注意事项

@@ -25,6 +25,8 @@
 - 支持新增、编辑、删除回忆。
 - 支持为回忆上传多张图片或多个视频。
 - 支持编辑回忆时追加媒体文件，或删除已有媒体文件。
+- 支持电脑端显示二维码，手机扫码后从手机相册上传照片或视频。
+- 支持电脑直接选择文件和手机上传文件的缩略预览。
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。
 - 支持回忆列表中的图片/视频预览弹层。
@@ -45,6 +47,7 @@
 | 本地数据库 | SQLite |
 | 生产数据库 | PostgreSQL，通过 `DATABASE_URL` 配置 |
 | 图片处理依赖 | Pillow |
+| 二维码生成 | qrcode |
 | 数据库 URL 解析 | dj-database-url |
 | PostgreSQL 驱动 | psycopg binary |
 | 生产 WSGI | Gunicorn |
@@ -168,7 +171,6 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 
 导航区域只在用户已登录时显示：
 
-- `回忆库`：跳转到 `memoir_list`。
 - `新增回忆`：跳转到 `memoir_create`。
 - `退出`：通过 POST 表单访问 `logout`。
 
@@ -355,6 +357,8 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 说明：
 
 - `name="media"` 与后端 `request.FILES.getlist("media")` 对应。
+- 选择图片或视频后，`static/js/app.js` 会使用浏览器本地 `objectURL` 显示缩略预览。
+- 手机扫码上传成功后，电脑端状态列表会通过受保护的临时预览接口显示缩略图。
 - `accept="image/*,video/*"` 在浏览器层面引导用户选择图片或视频。
 - `multiple` 允许一次选择多个文件。
 - 实际文件类型仍由后端再次校验。
@@ -629,6 +633,9 @@ admin.site.index_title = "后台管理"
 | `/memoirs/new/` | `memoir_create` | `memoir_create` | GET/POST | 新增回忆 |
 | `/memoirs/<uuid:pk>/edit/` | `memoir_update` | `memoir_update` | GET/POST | 编辑回忆 |
 | `/memoirs/<uuid:pk>/delete/` | `memoir_delete` | `memoir_delete` | POST | 删除回忆 |
+| `/mobile-upload/<str:token>/` | `mobile_upload` | `mobile_upload` | GET/POST | 手机端限时上传页 |
+| `/mobile-upload/<str:token>/status/` | `mobile_upload_status` | `mobile_upload_status` | GET | 电脑端轮询手机上传状态 |
+| `/mobile-upload/<str:token>/items/<int:item_id>/preview/` | `mobile_upload_item_preview` | `mobile_upload_item_preview` | GET | 手机上传临时/已入库文件预览 |
 | `/protected-media/<path:file_path>` | `protected_media` | `protected_media` | GET | 受保护媒体读取 |
 
 除了登录、注册和后台外，核心回忆页面均要求登录。
@@ -1334,12 +1341,14 @@ DJANGO_SUPERUSER_PASSWORD=
 ```python
 FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 1024
+MOBILE_UPLOAD_SESSION_TTL_MINUTES = 30
 ```
 
 说明：
 
 - 单个内存上传阈值为 20MB。
 - 请求体最大为 1GB。
+- 手机扫码上传链接默认有效期为 30 分钟。
 - 生产平台本身可能还有额外请求大小限制，需要以平台实际限制为准。
 
 ### 5.4 静态文件配置
@@ -1667,15 +1676,17 @@ memories/tests.py
 4. 新增回忆，填写日期、地点、心情、正文。
 5. 上传图片。
 6. 上传视频。
-7. 使用搜索框搜索标题、正文、地点、心情。
-8. 点击心情标签筛选。
-9. 点击图片缩略图打开预览。
-10. 点击视频缩略图播放视频。
-11. 编辑回忆并追加媒体。
-12. 编辑回忆并删除已有媒体。
-13. 删除回忆，确认列表不再显示。
-14. 用另一个账号访问原账号媒体链接，确认返回 404。
-15. 用管理员访问媒体链接，确认可以访问。
+7. 在新增/编辑回忆页扫码，用手机上传图片或视频，并确认电脑端出现缩略预览。
+8. 新增回忆时确认手机上传文件会在电脑保存后加入回忆；编辑回忆时确认手机上传会立即加入回忆。
+9. 使用搜索框搜索标题、正文、地点、心情。
+10. 点击心情标签筛选。
+11. 点击图片缩略图打开预览。
+12. 点击视频缩略图播放视频。
+13. 编辑回忆并追加媒体。
+14. 编辑回忆并删除已有媒体。
+15. 删除回忆，确认列表不再显示。
+16. 用另一个账号访问原账号媒体链接，确认返回 404。
+17. 用管理员访问媒体链接，确认可以访问。
 
 ## 9. 常用命令
 
