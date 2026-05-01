@@ -181,7 +181,7 @@ STORAGES = {
     "staticfiles": {
         "BACKEND": (
             "whitenoise.storage.CompressedManifestStaticFilesStorage"
-            if WHITENOISE_INSTALLED
+            if not DEBUG and WHITENOISE_INSTALLED
             else "django.contrib.staticfiles.storage.StaticFilesStorage"
         ),
     },
