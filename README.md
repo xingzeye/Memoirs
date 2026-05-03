@@ -20,6 +20,11 @@
 - 支持本地 SQLite 和生产 PostgreSQL
 - 支持 WhiteNoise 静态文件服务
 
+## 当前页面文案
+
+- 登录页主标题：`回忆替TA陪我`
+- 回忆列表 Hero 标题：`记忆中的TA`
+
 ## 技术栈
 
 - Python 3.12

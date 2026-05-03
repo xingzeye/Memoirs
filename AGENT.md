@@ -117,6 +117,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 ### 登录与访问控制
 
 - 登录页路径：`/accounts/login/`
+- 登录页主标题文案：`回忆替TA陪我`。
 - 登出路径：`/accounts/logout/`
 - 登录后默认跳转回忆库。
 - 未登录用户访问核心页面会被重定向到登录页。
@@ -141,6 +142,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 能力：
 
 - 展示当前登录用户的回忆。
+- Hero 标题文案：`记忆中的TA`。
 - 展示回忆总数和媒体文件总数。
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。

@@ -197,6 +197,7 @@ django.contrib.auth.views.LoginView
 - 使用独立的 `{% block body %}`，不继承登录后页面导航。
 - 采用沉浸式背景图与登录卡片布局。
 - 展示品牌文案：`忆往昔`。
+- 登录页主标题文案：`回忆替TA陪我`。
 - 表单字段来自 Django 内置认证表单。
 - 提交后由 Django Auth 完成登录。
 - 如果登录失败，显示 `用户名或密码不正确。`。
@@ -273,7 +274,7 @@ ALLOW_PUBLIC_REGISTRATION = env_bool("ALLOW_PUBLIC_REGISTRATION", DEBUG)
 
 页面结构：
 
-- Hero 区域：展示标题、说明文案、回忆数量和媒体数量。
+- Hero 区域：展示标题 `记忆中的TA`、说明文案、回忆数量和媒体数量。
 - 工具栏：搜索输入框、心情标签筛选、搜索按钮。
 - 时间线区域：逐条展示回忆卡片。
 - 空状态：没有回忆时展示新增入口。
