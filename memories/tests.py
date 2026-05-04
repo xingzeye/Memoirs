@@ -33,7 +33,7 @@ class MemoirViewTests(TestCase):
         response = self.client.get(reverse("login"))
 
         self.assertContains(response, reverse("register"))
-        self.assertContains(response, "立即注册")
+        self.assertContains(response, '"page": "auth"')
 
     @override_settings(ALLOW_PUBLIC_REGISTRATION=False)
     def test_public_registration_can_be_disabled(self):
@@ -43,7 +43,7 @@ class MemoirViewTests(TestCase):
 
         response = self.client.get(reverse("login"))
         self.assertNotContains(response, reverse("register"))
-        self.assertNotContains(response, "立即注册")
+        self.assertContains(response, '"allowPublicRegistration": false')
 
     def test_register_creates_user_and_logs_in(self):
         response = self.client.post(
@@ -71,7 +71,7 @@ class MemoirViewTests(TestCase):
         session = MobileUploadSession.objects.get(owner=self.user, mode=MobileUploadSession.Mode.CREATE)
         self.assertContains(response, session.token)
         self.assertContains(response, reverse("mobile_upload", kwargs={"token": session.token}))
-        self.assertContains(response, "用手机上传照片或视频")
+        self.assertContains(response, '"mobileUpload"')
 
     def test_mobile_upload_create_waits_until_desktop_save(self):
         self.login()
@@ -201,11 +201,33 @@ class MemoirViewTests(TestCase):
     def test_list_shows_edit_link(self):
         self.login()
         memoir = Memoir.objects.create(title="可修改", owner=self.user)
+        MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("photo.jpg", b"photo bytes", content_type="image/jpeg"),
+            original_filename="photo.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/jpeg",
+            size=11,
+        )
+        MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("clip.mp4", b"video bytes", content_type="video/mp4"),
+            original_filename="clip.mp4",
+            media_type=MemoirMedia.MediaType.VIDEO,
+            mime_type="video/mp4",
+            size=11,
+        )
 
         response = self.client.get(reverse("memoir_list"))
 
         self.assertContains(response, reverse("memoir_update", kwargs={"pk": memoir.pk}))
-        self.assertContains(response, "修改")
+        self.assertContains(response, '"page": "archive"')
+        response = self.client.get(reverse("api_memoirs"))
+        stats = response.json()["stats"]
+        self.assertEqual(stats["memoirs"], 1)
+        self.assertEqual(stats["media"], 2)
+        self.assertEqual(stats["photos"], 1)
+        self.assertEqual(stats["videos"], 1)
 
     def test_update_memoir_changes_fields_and_removes_media(self):
         self.login()

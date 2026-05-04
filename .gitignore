@@ -30,6 +30,8 @@ htmlcov/
 # Build/cache artifacts
 build/
 dist/
+node_modules/
+frontend/node_modules/
 *.egg-info/
 .mypy_cache/
 .ruff_cache/

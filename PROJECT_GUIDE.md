@@ -30,6 +30,12 @@
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。
 - 支持回忆列表中的图片/视频预览弹层。
+- 回忆库首页采用左侧深墨绿档案导航、顶部搜索筛选和紧凑时间线列表；统计区显示回忆、照片和视频数量。
+- 回忆库侧栏是可交互的客户端视图切换：地点、心情、信笺和媒体会筛选当前列表，回收站显示空态；时间排序可切换升降序，视图按钮可切换列表/媒体密度。
+- 时间线视图只显示填写了 `memoryDate` 的回忆；未写日期的回忆保留在 `记忆中的TA` 全部列表中。
+- 时间线行只渲染真实存在的媒体缩略图；没有媒体或媒体数量不足时不显示空占位框。
+- 用户可见界面由 React/Vite 接管，覆盖登录/注册、回忆库、编辑器和手机上传页面。
+- Django Template 负责输出 React 挂载壳与初始 JSON 上下文，后续交互通过 Django JSON API 完成。
 - 支持 Django Admin 后台管理回忆和媒体。
 - 媒体文件通过受保护视图访问，不直接公开 `media/` 目录。
 
@@ -39,9 +45,10 @@
 | --- | --- |
 | 语言 | Python 3.12 |
 | Web 框架 | Django 5.x |
-| 前端渲染 | Django Template |
-| 样式 | 原生 CSS，文件为 `static/css/app.css` |
-| 交互 | 原生 JavaScript，文件为 `static/js/app.js` |
+| 前端渲染 | React 18 + Vite + TypeScript |
+| 模板职责 | Django Template 作为 React 挂载壳 |
+| 样式 | 原生 CSS 设计系统，源码为 `frontend/src/styles/app.css`，产物为 `static/frontend/app.css` |
+| 交互 | React 组件 + Django JSON API；`static/frontend/app.js` 保留临时 fallback |
 | 表单 | Django Forms |
 | 认证 | Django 内置 Auth |
 | 本地数据库 | SQLite |
@@ -79,16 +86,22 @@ E:\Memoirs
 │       └── commands/
 │           └── ensure_superuser.py  # 部署时自动创建超级用户
 ├── templates/
-│   ├── base.html                    # 登录后页面基础布局
+│   ├── base.html                    # React 挂载壳、静态资源引用、初始 JSON 上下文
 │   ├── registration/
-│   │   ├── login.html               # 登录页
-│   │   └── register.html            # 注册页
+│   │   ├── login.html               # 登录页标题壳
+│   │   └── register.html            # 注册页标题壳
 │   └── memories/
-│       ├── memoir_list.html         # 回忆列表页
-│       └── memoir_form.html         # 新增/编辑回忆页
+│       ├── memoir_list.html         # 回忆列表页标题壳
+│       ├── memoir_form.html         # 新增/编辑回忆页标题壳
+│       └── mobile_upload.html       # 手机上传页标题壳
+├── frontend/                        # React/Vite 前端源码
+│   ├── package.json                 # 前端依赖与构建脚本
+│   ├── vite.config.ts               # 输出到 static/frontend，且不清空目录
+│   └── src/                         # React 组件、API helper、CSS 源码
 ├── static/
-│   ├── css/app.css                  # 应用样式
-│   └── js/app.js                    # 文件选择提示与媒体预览弹层
+│   ├── frontend/app.css             # Django 页面引用的前端样式
+│   ├── frontend/app.js              # Django 页面引用的前端脚本
+│   └── images/                      # 登录背景与纸纹理等项目内视觉资产
 ├── media/                           # 本地上传文件目录，已被 .gitignore 忽略
 ├── .test-media/                     # 测试媒体目录，已被 .gitignore 忽略
 ├── .env.example                     # 环境变量示例
@@ -138,43 +151,80 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 
 ### 2.1 前端架构
 
-项目没有使用 React、Vue、Vite、Webpack 或 Django REST Framework。当前前端由 Django Template、原生 CSS 和少量原生 JavaScript 组成。
+用户可见前端已切换为 React 18 + Vite + TypeScript。Django Template 不再直接绘制完整页面，而是输出统一挂载壳、初始 JSON 上下文和静态资源引用。
+
+当前前端边界：
+
+- `#memoirs-root` 是 React 挂载节点。
+- `memoirs-initial-data` 注入当前页面、登录态、CSRF token、路由和首屏数据。
+- `static/frontend/app.css` 与 `static/frontend/app.js` 是 Django 实际引用的前端产物。
+- `templates/base.html` 引用前端产物时带固定版本参数；重做用户界面后应更新该参数，避免浏览器继续缓存旧 bundle。
+- `frontend/src/` 是 React/Vite 源码。
+- 由于本机环境可能没有 `npm`，仓库保留了轻量 `static/frontend/app.js` fallback；正式前端更新应运行 Vite 构建覆盖它。
 
 主要前端文件：
 
 | 文件 | 作用 |
 | --- | --- |
-| `templates/base.html` | 登录后页面的基础布局、导航、消息提示、静态资源引用 |
-| `templates/registration/login.html` | 登录页 |
-| `templates/registration/register.html` | 注册页 |
-| `templates/memories/memoir_list.html` | 回忆列表、搜索、标签筛选、媒体预览入口 |
-| `templates/memories/memoir_form.html` | 新增和编辑回忆表单 |
-| `static/css/app.css` | 全局视觉、布局、响应式、表单、卡片、登录页和预览弹层样式 |
-| `static/js/app.js` | 文件选择列表提示、图片/视频预览弹层 |
+| `templates/base.html` | React 挂载壳、初始 JSON、静态资源引用 |
+| `templates/registration/login.html` | 登录页标题壳 |
+| `templates/registration/register.html` | 注册页标题壳 |
+| `templates/memories/memoir_list.html` | 回忆库标题壳 |
+| `templates/memories/memoir_form.html` | 新增/编辑标题壳 |
+| `templates/memories/mobile_upload.html` | 手机上传标题壳 |
+| `frontend/src/components/` | 登录/注册、回忆库、编辑器、手机上传和媒体预览组件 |
+| `frontend/src/lib/` | 初始上下文、CSRF、fetch API 和共享类型 |
+| `frontend/src/styles/app.css` | 高端私人纪念册视觉系统源码 |
+| `static/frontend/app.js` / `app.css` | Django 实际引用的前端产物 |
 
-前端页面均由后端视图直接渲染。用户提交表单后，服务端处理数据并重定向到列表页。
+页面初始数据由后端视图注入；后续搜索、筛选、保存、删除、上传等交互优先通过 JSON API 完成。旧的 POST 页面视图仍保留为非 JS fallback 和测试兼容入口。
 
 ### 2.2 基础布局 `base.html`
 
-`templates/base.html` 是登录后页面的基础模板。
+`templates/base.html` 是 React 前端的统一挂载模板。
 
 它负责：
 
 - 加载静态资源标签 `{% load static %}`。
 - 设置 HTML 语言为 `zh-CN`。
 - 设置响应式视口。
-- 引入样式文件：`static/css/app.css`。
-- 渲染顶部导航。
-- 渲染 Django messages 消息。
-- 暴露 `{% block content %}` 给业务页面填充。
-- 在页面底部引入脚本：`static/js/app.js`。
+- 引入样式文件：`static/frontend/app.css`。
+- 静态前端资源 URL 带版本参数，用于强制浏览器刷新最新 React/CSS。
+- 渲染 `#memoirs-root`。
+- 通过 `json_script` 写入 `app_initial_data`。
+- 在页面底部引入脚本：`static/frontend/app.js`。
 
-导航区域只在用户已登录时显示：
+导航区域、登录表单、回忆列表、编辑器和手机上传状态都由 React 根据初始 JSON 和 API 响应渲染。
 
-- `新增回忆`：跳转到 `memoir_create`。
-- `退出`：通过 POST 表单访问 `logout`。
+### 2.2.1 React 页面与视觉方向
 
-退出按钮使用 POST，并包含 CSRF Token，符合 Django 推荐做法。
+视觉方向固定为“纪念 TA 的高端私人回忆档案”：
+
+- 页面文案使用“TA”“旧时光”“回忆”“私密保存”，不直接放大“前任”。
+- 主色为深墨绿，辅以暖白纸感、古金和石墨色；删除/危险动作使用柔和珊瑚色。
+- 回忆库页以左侧档案栏和时间线表格为主，不再使用营销型大 Hero 或泛卡片瀑布流。
+- 登录页使用项目内背景图 `static/images/memoir-login-scene.png`。
+- 全站纸感背景使用 `static/images/archive-paper-texture.png`。
+- 圆角保持 8px 以内，避免营销型 hero、装饰光球、大面积蓝紫渐变和外链背景图。
+
+### 2.2.2 JSON API
+
+新增 API 路由位于 `memories/urls.py`：
+
+| 路由 | 方法 | 作用 |
+| --- | --- | --- |
+| `/api/session/` | GET | 当前登录态、CSRF token、前端路由 |
+| `/api/auth/login/` | POST | 登录 |
+| `/api/auth/register/` | POST | 注册并登录 |
+| `/api/auth/logout/` | POST | 退出 |
+| `/api/memoirs/` | GET/POST | 列表/搜索/筛选，返回回忆、媒体、照片和视频统计，或创建回忆 |
+| `/api/memoirs/<uuid>/` | GET/POST | 读取编辑数据，或保存修改 |
+| `/api/memoirs/<uuid>/delete/` | POST | 删除回忆 |
+| `/api/mobile-upload-sessions/` | POST | 生成新增/编辑页手机上传二维码会话 |
+
+手机上传 token 页面仍使用 `/mobile-upload/<token>/`。当请求头接受 JSON 时，它会返回 React 所需的上传状态和错误信息；普通表单 POST 仍可作为 fallback。
+
+> 下面的页面小节保留业务流程说明；具体视觉和 DOM 已由 React 组件实现，不再由模板直接绘制完整页面。
 
 ### 2.3 登录页
 
@@ -271,24 +321,26 @@ ALLOW_PUBLIC_REGISTRATION = env_bool("ALLOW_PUBLIC_REGISTRATION", DEBUG)
 | `mood_choices` | 当前用户已有的非空心情标签 |
 | `memoir_count` | 当前用户回忆总数 |
 | `media_count` | 当前用户媒体文件总数 |
+| `stats.photos` / `stats.videos` | React API 统计中的图片和视频数量 |
 
 页面结构：
 
-- Hero 区域：展示标题 `记忆中的TA`、说明文案、回忆数量和媒体数量。
-- 工具栏：搜索输入框、心情标签筛选、搜索按钮。
-- 时间线区域：逐条展示回忆卡片。
+- 左侧档案栏：品牌、`记忆中的TA`、时间线、地点、心情、信笺、媒体、回收站、设置和退出入口。
+- 顶部工具栏：标题 `记忆中的TA`、回忆/照片/视频统计、搜索框、提醒头像和新增入口。
+- 筛选工具栏：心情标签筛选、时间排序和列表视图按钮。
+- 时间线区域：逐条展示紧凑档案行，不使用瀑布流或大卡片布局。
+- 头像按钮打开账号浮层，退出需要在浮层或侧栏明确点击退出。
 - 空状态：没有回忆时展示新增入口。
 - 预览弹层：供 JavaScript 动态填充图片或视频。
 
-每张回忆卡片包含：
+每条回忆行包含：
 
 - 日期，未填写时显示 `某一天`。
+- 最多两张图片/视频缩略图，点击打开媒体预览；媒体视图最多展示三张。
 - 标题。
-- 修改入口。
-- 删除按钮。
 - 地点和心情标签。
-- 正文。
-- 图片/视频缩略图。
+- 正文摘要。
+- 媒体数量、修改入口和删除按钮。
 
 删除回忆使用 POST 表单，并通过浏览器 `confirm` 弹窗二次确认：
 
@@ -304,7 +356,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 | `data-media-type` | `image` 或 `video` |
 | `data-media-name` | 原始文件名，用作预览标题或图片 alt |
 
-这些属性由 `static/js/app.js` 读取，用来创建预览弹层内容。
+这些属性现在由 React 的媒体预览组件读取，用来创建预览弹层内容；旧 `static/js/app.js` 不再作为主入口引用。
 
 ### 2.6 新增/编辑回忆页
 
@@ -358,7 +410,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 说明：
 
 - `name="media"` 与后端 `request.FILES.getlist("media")` 对应。
-- 选择图片或视频后，`static/js/app.js` 会使用浏览器本地 `objectURL` 显示缩略预览。
+- 选择图片或视频后，React 编辑器会使用浏览器本地 `objectURL` 显示缩略预览。
 - 手机扫码上传成功后，电脑端状态列表会通过受保护的临时预览接口显示缩略图。
 - `accept="image/*,video/*"` 在浏览器层面引导用户选择图片或视频。
 - `multiple` 允许一次选择多个文件。
@@ -373,7 +425,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 
 ### 2.7 CSS 视觉系统
 
-文件：`static/css/app.css`
+文件：`frontend/src/styles/app.css`，构建产物为 `static/frontend/app.css`
 
 当前 CSS 是单文件全局样式，没有引入 CSS 框架。
 
@@ -384,9 +436,9 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 - 主色为绿色/青绿色。
 - 辅助色包含珊瑚色、金色、薰衣草色。
 - 大量使用 8px 圆角。
-- 表单、卡片、工具栏使用半透明面板和轻微阴影。
+- 表单和工具栏保持半透明面板；列表页改为低阴影的档案表格密度。
 - 登录页使用全屏背景图和玻璃感登录卡片。
-- 列表页使用卡片式时间线。
+- 列表页使用左侧深墨绿档案栏和紧凑时间线表格。
 - 媒体预览弹层使用深色背景。
 
 重要 CSS 变量：
@@ -442,7 +494,7 @@ CSS 里主要使用三个断点：
 
 ### 2.9 JavaScript 交互
 
-文件：`static/js/app.js`
+文件：`frontend/src/` 下的 React 组件，构建产物为 `static/frontend/app.js`
 
 项目中的 JavaScript 只负责增强页面体验，不承载核心业务逻辑。即使 JavaScript 不运行，后端表单提交仍然可以保存数据。
 
@@ -1452,7 +1504,22 @@ http://127.0.0.1:8017/
 http://127.0.0.1:8017/admin/
 ```
 
-### 6.6 本地 `.env` 示例
+### 6.6 构建 React 前端
+
+前端依赖和构建脚本在 `frontend/package.json`。构建产物输出到 `static/frontend/`，并配置为不清空输出目录。
+
+```powershell
+npm install --prefix frontend
+npm run build --prefix frontend
+```
+
+如果 `memoirs` conda 环境中没有 `npm`，先安装 Node.js/npm：
+
+```powershell
+conda install -n memoirs "nodejs>=22"
+```
+
+### 6.7 本地 `.env` 示例
 
 可以从 `.env.example` 复制为 `.env`，本地最小配置示例：
 

@@ -1,5 +1,21 @@
 # 项目认知备忘
 
+## 最近功能变更：React/Vite 全流程前端
+
+- 用户可见页面已切换为 React/Vite 前端体验层，Django Template 现在主要负责输出 `#memoirs-root` 和初始 JSON 上下文。
+- React 源码位于 `frontend/`，构建产物输出到 `static/frontend/app.js` 与 `static/frontend/app.css`。
+- 当前视觉方向是“纪念 TA 的高端私人回忆档案”：文案使用“TA”“旧时光”“回忆”“私密保存”，不要在 UI 中直接放大“前任”。
+- 回忆库首页已按参考图改为左侧深墨绿档案栏、顶部搜索筛选和紧凑时间线行；不要再改回营销型 Hero 或瀑布流卡片。
+- 侧栏、时间排序、视图按钮和头像都应保持真实交互；头像只打开账号菜单，不能直接退出。
+- 时间线视图只显示填写了回忆日期的条目；未写日期的回忆保留在全部列表。
+- 时间线行只展示真实媒体缩略图，不为缺失媒体显示空占位框。
+- `/api/memoirs/` 的统计包含 `memoirs`、`media`、`photos`、`videos`，没有信笺模型时不要虚构信笺数量。
+- 新增 Django JSON API：认证、会话、回忆列表/创建/编辑/删除、手机上传会话。
+- `templates/base.html` 给 `static/frontend/app.js` 和 `app.css` 带前端版本参数；更新前端界面后同步 bump，避免浏览器缓存旧界面。
+- 项目内视觉资产位于 `static/images/`，不要重新引入远程 Unsplash 等外链背景图。
+- 由于本机当前 PATH/conda 环境可能没有 `npm`，前端构建前需要先安装或启用 npm；后端验证使用 `conda run -n memoirs python ...`。
+- `static/frontend/app.js` 保留轻量 fallback，正式更新前端后应运行 Vite 构建覆盖它。
+
 ## 最近功能变更：手机扫码上传
 
 - 新增/编辑回忆页支持电脑端显示二维码，手机扫码后可免登录限时上传相册照片或视频。
@@ -29,7 +45,9 @@
 - Pillow
 - django-jazzmin，用于美化 Django Admin
 - Django 模板系统
-- 原生 CSS 和少量原生 JavaScript
+- React 18 + Vite + TypeScript 用户前端
+- Django 模板系统作为 React 挂载壳
+- 原生 CSS 设计系统和少量 fallback JavaScript
 - qrcode，用于生成手机扫码上传入口二维码
 - SQLite 作为默认数据库
 
@@ -61,9 +79,10 @@
 │   └── memories/
 │       ├── memoir_list.html
 │       └── memoir_form.html
+├── frontend/                # React/Vite 源码
 ├── static/
-│   ├── css/app.css          # 页面样式
-│   └── js/app.js            # 文件缩略预览、手机上传状态轮询与媒体预览
+│   ├── frontend/            # React/Vite 构建产物
+│   └── images/              # 项目内视觉资产
 ├── media/                   # 本地上传文件目录，已被 git 忽略
 ├── manage.py
 ├── README.md
@@ -117,7 +136,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 ### 登录与访问控制
 
 - 登录页路径：`/accounts/login/`
-- 登录页主标题文案：`回忆替TA陪我`。
+- 登录页主标题文案围绕 `把和TA的美好，安静收好`。
 - 登出路径：`/accounts/logout/`
 - 登录后默认跳转回忆库。
 - 未登录用户访问核心页面会被重定向到登录页。
@@ -142,10 +161,12 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 能力：
 
 - 展示当前登录用户的回忆。
-- Hero 标题文案：`记忆中的TA`。
-- 展示回忆总数和媒体文件总数。
+- 页面标题文案：`记忆中的TA`。
+- 展示回忆总数、照片数和视频数。
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。
+- 使用左侧档案栏和紧凑时间线行展示日期、真实媒体缩略图、标题摘要、地点、心情、媒体数、编辑和删除操作。
+- 侧栏地点/心情/信笺/媒体是客户端筛选视图，时间排序切换升降序，视图按钮切换列表与媒体密度。
 - 展示图片和视频缩略内容。
 - 点击媒体可以打开前端预览弹层。
 
@@ -238,21 +259,22 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 
 ## 前端界面
 
-模板使用 Django Template。
+用户可见前端使用 React/Vite。Django Template 只保留轻量挂载壳。
 
 关键模板：
 
-- `templates/base.html`：基础布局、导航、消息提示。
-- `templates/registration/login.html`：登录页。
-- `templates/memories/memoir_list.html`：回忆列表、搜索、筛选、媒体预览入口。
-- `templates/memories/memoir_form.html`：新增和编辑表单。
+- `templates/base.html`：加载 `static/frontend/app.css`、输出 `#memoirs-root`、写入 `memoirs-initial-data` JSON、加载 `static/frontend/app.js`。
+- `templates/registration/login.html`、`templates/registration/register.html`、`templates/memories/*.html`：仅设置页面标题并继承 React 挂载壳。
+- `frontend/src/components/`：登录/注册、回忆库、编辑器、手机上传和媒体预览组件。
+- `frontend/src/lib/`：初始上下文、CSRF、fetch API 和共享类型。
 
 静态资源：
 
-- `static/css/app.css`：整体视觉风格、响应式布局、登录页、卡片、表单、预览弹层等。
-- `static/js/app.js`：显示已选择文件名、图片/视频预览弹层、关闭预览。
+- `frontend/src/styles/app.css`：React 前端设计系统源码。
+- `static/frontend/app.css`：当前 Django 引用的样式产物。
+- `static/frontend/app.js`：当前 Django 引用的脚本产物；有 npm 时应由 Vite 构建覆盖。
 
-界面语言是中文，视觉风格偏私密档案、柔和浅色背景、绿色强调色。
+界面语言是中文，视觉风格偏高端私人纪念册、柔和浅色纸感背景、深墨绿与古金强调色；回忆库列表页是档案工作台，不是营销展示页。
 
 ## 配置与环境
 
@@ -325,6 +347,19 @@ python manage.py check
 python manage.py test
 ```
 
+前端构建：
+
+```powershell
+npm install --prefix frontend
+npm run build --prefix frontend
+```
+
+如果 `npm` 不存在：
+
+```powershell
+conda install -n memoirs "nodejs>=22"
+```
+
 ## 测试覆盖
 
 `memories/tests.py` 覆盖了核心行为：
@@ -343,9 +378,10 @@ python manage.py test
 - 不要绕过 `protected_media` 直接公开 `media/`，否则会破坏私密访问模型。
 - 新增媒体类型时，应同时更新 `memories/models.py` 和 `memories/views.py` 中的扩展名识别逻辑。
 - 涉及文件删除逻辑时，要确认数据库记录和磁盘文件能同步清理。
-- 修改用户可见页面时，应保持中文界面文案和现有模板风格一致。
+- 修改用户可见页面时，应保持 React 前端、中文界面文案和“纪念 TA 的私人回忆档案”视觉方向一致。
+- 修改 React 源码后应运行 `npm run build --prefix frontend`，并确认 `static/frontend/` 产物同步。
 - 修改表单字段时，需要同步检查模型、表单、模板、后台和测试。
-- 项目当前没有使用 Django REST Framework，也没有前端构建链；优先沿用 Django 模板、原生 CSS、原生 JavaScript。
+- 项目当前没有使用 Django REST Framework；用户可见前端优先沿用 React/Vite、Django JSON API 和原生 CSS 设计系统。
 - `db.sqlite3`、`media/`、`.env`、日志文件和测试媒体目录已被 `.gitignore` 忽略，不应提交。
 
 ## 当前项目状态总结

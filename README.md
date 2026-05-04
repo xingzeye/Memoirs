@@ -15,6 +15,12 @@
 - 编辑回忆时追加或删除已有媒体文件
 - 电脑端新建/编辑回忆时可扫码，用手机相册上传照片或视频
 - 已选择和手机上传的图片/视频会在表单中显示缩略预览
+- 用户可见前端已切换为 React/Vite 应用壳，Django 负责认证、API、媒体保护和静态文件服务
+- 高级私人纪念册视觉：围绕“TA”“旧时光”“私密保存”组织登录、列表、编辑和手机上传体验
+- 回忆库首页采用左侧深墨绿档案栏、顶部搜索筛选和紧凑时间线列表，贴近私人档案工作台
+- 回忆库侧栏可切换时间线、地点、心情、信笺、媒体和回收站视图；时间排序、列表/媒体视图和账号菜单均为真实交互
+- 时间线视图只显示填写了回忆日期的条目，未写日期的回忆仍保留在全部列表中
+- 回忆列表只展示真实图片/视频缩略图，不为缺失媒体渲染空占位框
 - 媒体文件通过登录保护访问
 - Django Admin 后台管理
 - 支持本地 SQLite 和生产 PostgreSQL
@@ -23,7 +29,8 @@
 ## 当前页面文案
 
 - 登录页主标题：`回忆替TA陪我`
-- 回忆列表 Hero 标题：`记忆中的TA`
+- 回忆库标题：`记忆中的TA`
+- 回忆库统计：展示回忆段数、照片数和视频数；没有信笺模型时不虚构信笺数据
 
 ## 技术栈
 
@@ -31,7 +38,9 @@
 - Django 5.x
 - SQLite / PostgreSQL
 - Django Templates
-- 原生 CSS / JavaScript
+- React 18 + Vite + TypeScript
+- Django JSON API + Session/CSRF 认证
+- 原生 CSS 设计系统
 - Pillow
 - qrcode
 - django-simpleui
@@ -52,7 +61,10 @@ Memoirs/
 │  ├─ urls.py                      # 应用路由
 │  └─ management/commands/         # 部署辅助命令
 ├─ templates/                      # 页面模板
+├─ frontend/                       # React/Vite 前端源码
 ├─ static/                         # 静态资源
+│  ├─ frontend/                    # Vite 构建产物，Django 页面直接引用
+│  └─ images/                      # 项目内视觉资产，不依赖远程图片
 ├─ media/                          # 本地上传文件目录
 ├─ .env.example                    # 环境变量示例
 ├─ environment.yml                 # Conda 环境
@@ -111,6 +123,24 @@ http://127.0.0.1:8017/
 ```text
 http://127.0.0.1:8017/admin/
 ```
+
+### 4. 构建前端
+
+前端源码位于 `frontend/`，构建产物输出到 `static/frontend/`。构建不会清空输出目录。
+模板引用 `app.js` / `app.css` 时带前端版本参数，用来避免浏览器继续缓存旧界面。
+
+```powershell
+npm install --prefix frontend
+npm run build --prefix frontend
+```
+
+如果当前 conda 环境没有 `npm`，可先为 `memoirs` 环境安装 Node.js/npm：
+
+```powershell
+conda install -n memoirs "nodejs>=22"
+```
+
+在 npm 不可用时，`static/frontend/app.js` 内保留了一个轻量 fallback，避免页面空白；正式交付应以 Vite 构建后的 React bundle 为准。
 
 ## 环境变量
 
