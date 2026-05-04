@@ -40,7 +40,7 @@ export function AuthScreen({ session, payload }: AuthScreenProps) {
       <section className="auth-art" aria-label="忆往昔">
         <EmptyBrand />
         <div className="auth-copy">
-          <h1>{isRegister ? "从这里开始，把旧时光安静收好" : "把和TA的美好，安静收好"}</h1>
+          <h1>{isRegister ? "从这里开始，把旧时光安静收好" : "回忆替TA陪我"}</h1>
           <p>那些没有被时间冲淡的瞬间，可以在这里以更体面的方式留下。</p>
           <div className="auth-notes" aria-label="支持内容">
             <span>照片</span>

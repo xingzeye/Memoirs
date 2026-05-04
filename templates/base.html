@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}忆往昔{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="{% static 'icons/favicon.svg' %}">
-    <link rel="stylesheet" href="{% static 'frontend/app.css' %}?v=20260504-no-alert-button">
+    <link rel="stylesheet" href="{% static 'frontend/app.css' %}?v=20260504-login-title">
   </head>
   <body>
     {% block body %}
@@ -18,7 +18,7 @@
           <p>请开启浏览器 JavaScript 后继续使用你的私人回忆库。</p>
         </main>
       </noscript>
-      <script type="module" src="{% static 'frontend/app.js' %}?v=20260504-no-alert-button"></script>
+      <script type="module" src="{% static 'frontend/app.js' %}?v=20260504-login-title"></script>
     {% endblock %}
   </body>
 </html>

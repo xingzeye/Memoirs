@@ -136,7 +136,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 ### 登录与访问控制
 
 - 登录页路径：`/accounts/login/`
-- 登录页主标题文案围绕 `把和TA的美好，安静收好`。
+- 登录页主标题文案围绕 `回忆替TA陪我`。
 - 登出路径：`/accounts/logout/`
 - 登录后默认跳转回忆库。
 - 未登录用户访问核心页面会被重定向到登录页。
