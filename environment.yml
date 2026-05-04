@@ -4,6 +4,7 @@ channels:
   - defaults
 dependencies:
   - python=3.12
+  - nodejs>=22
   - pip
   - pip:
       - Django>=5.0,<6.0

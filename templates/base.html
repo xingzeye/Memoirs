@@ -6,38 +6,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}忆往昔{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="{% static 'icons/favicon.svg' %}">
-    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+    <link rel="stylesheet" href="{% static 'frontend/app.css' %}?v=20260504-no-alert-button">
   </head>
   <body>
     {% block body %}
-      <main class="app-shell">
-        <nav class="app-nav">
-          <div class="brand" aria-label="忆往昔">
-            <span class="brand-mark">忆</span>
-            <span>忆往昔</span>
-          </div>
-          {% if request.user.is_authenticated %}
-            <div class="nav-actions">
-              <a class="link-button" href="{% url 'memoir_create' %}">新增回忆</a>
-              <form method="post" action="{% url 'logout' %}">
-                {% csrf_token %}
-                <button class="link-button" type="submit">退出</button>
-              </form>
-            </div>
-          {% endif %}
-        </nav>
-
-        {% if messages %}
-          <section class="messages">
-            {% for message in messages %}
-              <div class="message">{{ message }}</div>
-            {% endfor %}
-          </section>
-        {% endif %}
-
-        {% block content %}{% endblock %}
-      </main>
-      <script src="{% static 'js/app.js' %}"></script>
+      <div id="memoirs-root" data-page="{{ app_page|default:'archive' }}"></div>
+      {{ app_initial_data|json_script:"memoirs-initial-data" }}
+      <noscript>
+        <main class="noscript-panel">
+          <h1>忆往昔需要启用 JavaScript</h1>
+          <p>请开启浏览器 JavaScript 后继续使用你的私人回忆库。</p>
+        </main>
+      </noscript>
+      <script type="module" src="{% static 'frontend/app.js' %}?v=20260504-no-alert-button"></script>
     {% endblock %}
   </body>
 </html>
