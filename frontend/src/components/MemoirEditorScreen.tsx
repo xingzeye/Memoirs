@@ -1,6 +1,6 @@
 import { CheckCircle2, ImagePlus, QrCode, Save, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { apiForm } from "../lib/api";
+import { apiForm, formatBytes } from "../lib/api";
 import type { AppSession, FormErrors, MediaItem, MobileUploadSession } from "../lib/types";
 import { Brand } from "./Brand";
 import { FilePreviewList, type LocalFilePreview } from "./FilePreviewList";
@@ -51,17 +51,42 @@ export function MemoirEditorScreen({ session, payload, onLogout }: MemoirEditorS
 
   const title = mode === "edit" ? "修改回忆" : "新增回忆";
   const storyHint = mode === "edit" ? "调整文字、日期和照片，让这段旧时光保持完整。" : "写下那天的地点、心情和你想保存的细节。";
+  const maxUploadBytes = session.uploadLimits?.maxRequestBytes || 1024 * 1024 * 1024;
   const moodOptions = useMemo(() => {
     const currentMood = values.mood || "";
     return currentMood && !commonMoodOptions.includes(currentMood) ? [currentMood, ...commonMoodOptions] : commonMoodOptions;
   }, [values.mood]);
 
   function onFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(event.target.files || []).map((file) => ({
+    const selectedFiles = Array.from(event.target.files || []);
+    const oversizedFile = selectedFiles.find((file) => file.size > maxUploadBytes);
+    const currentSize = files.reduce((total, item) => total + item.file.size, 0);
+    const selectedSize = selectedFiles.reduce((total, file) => total + file.size, 0);
+
+    if (oversizedFile) {
+      setErrors((current) => ({
+        ...current,
+        __all__: [`${oversizedFile.name} 太大了，单个文件不能超过 ${formatBytes(maxUploadBytes)}。`],
+      }));
+      event.target.value = "";
+      return;
+    }
+
+    if (currentSize + selectedSize > maxUploadBytes) {
+      setErrors((current) => ({
+        ...current,
+        __all__: [`这次选择的照片和视频总大小超过 ${formatBytes(maxUploadBytes)}，请分开上传或先压缩视频。`],
+      }));
+      event.target.value = "";
+      return;
+    }
+
+    const selected = selectedFiles.map((file) => ({
       id: `${file.name}-${file.size}-${crypto.randomUUID()}`,
       file,
       url: URL.createObjectURL(file),
     }));
+    setErrors((current) => ({ ...current, __all__: [] }));
     setFiles((current) => [...current, ...selected]);
     event.target.value = "";
   }
@@ -87,6 +112,12 @@ export function MemoirEditorScreen({ session, payload, onLogout }: MemoirEditorS
     event.preventDefault();
     setPending(true);
     setErrors({});
+    const selectedSize = files.reduce((total, item) => total + item.file.size, 0);
+    if (selectedSize > maxUploadBytes) {
+      setErrors({ __all__: [`这次上传的照片和视频总大小超过 ${formatBytes(maxUploadBytes)}，请分开上传或先压缩视频。`] });
+      setPending(false);
+      return;
+    }
     const formData = new FormData(event.currentTarget);
     files.forEach(({ file }) => formData.append("media", file));
     deleteMedia.forEach((id) => formData.append("delete_media", String(id)));

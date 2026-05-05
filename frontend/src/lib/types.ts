@@ -18,6 +18,10 @@ export type AppSession = {
   allowPublicRegistration: boolean;
   csrfToken: string;
   routes: AppRoutes;
+  uploadLimits?: {
+    maxRequestBytes?: number;
+    maxMemoryFileBytes?: number;
+  };
 };
 
 export type MediaItem = {

@@ -42,6 +42,26 @@ export async function apiJson<T>(
   return data;
 }
 
+async function readResponsePayload<T>(response: Response): Promise<T> {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return (await response.json()) as T;
+  }
+
+  const text = await response.text();
+  if (!response.ok) {
+    const message =
+      response.status === 413
+        ? "上传失败：文件太大，超过服务器允许的上传大小。"
+        : response.status === 400
+          ? "上传失败：文件可能超过服务器允许大小，或请求被平台拦截。建议压缩视频后再试。"
+          : text.trim() || "请求失败，请稍后再试。";
+    throw { errors: { __all__: [message] }, status: response.status };
+  }
+
+  return text as T;
+}
+
 export async function apiForm<T>(url: string, csrfToken: string, formData: FormData): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
@@ -53,7 +73,7 @@ export async function apiForm<T>(url: string, csrfToken: string, formData: FormD
     },
     body: formData,
   });
-  const data = (await response.json()) as T;
+  const data = await readResponsePayload<T>(response);
   if (!response.ok) {
     throw data;
   }

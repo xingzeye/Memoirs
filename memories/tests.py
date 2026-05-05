@@ -72,6 +72,7 @@ class MemoirViewTests(TestCase):
         self.assertContains(response, session.token)
         self.assertContains(response, reverse("mobile_upload", kwargs={"token": session.token}))
         self.assertContains(response, '"mobileUpload"')
+        self.assertContains(response, '"uploadLimits"')
 
     def test_mobile_upload_create_waits_until_desktop_save(self):
         self.login()
