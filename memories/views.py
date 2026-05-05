@@ -154,6 +154,7 @@ def serialize_memoir(request: HttpRequest, memoir: Memoir) -> dict[str, object]:
         "mediaCount": len(media_items),
         "media": [serialize_media(request, media) for media in media_items],
         "urls": {
+            "detail": reverse("memoir_detail", kwargs={"pk": memoir.pk}),
             "edit": reverse("memoir_update", kwargs={"pk": memoir.pk}),
             "delete": reverse("memoir_delete", kwargs={"pk": memoir.pk}),
             "api": reverse("api_memoir_detail", kwargs={"pk": memoir.pk}),
@@ -502,6 +503,22 @@ def memoir_list(request: HttpRequest) -> HttpResponse:
         "memories/memoir_list.html",
         "archive",
         memoir_collection_payload(request),
+    )
+
+
+@login_required
+@ensure_csrf_cookie
+def memoir_detail(request: HttpRequest, pk) -> HttpResponse:
+    memoir = get_object_or_404(
+        Memoir.objects.prefetch_related("media_items"),
+        pk=pk,
+        owner=request.user,
+    )
+    return render_app(
+        request,
+        "memories/memoir_detail.html",
+        "detail",
+        {"memoir": serialize_memoir(request, memoir)},
     )
 
 

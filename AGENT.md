@@ -3,8 +3,8 @@
 ## 最近功能变更：React/Vite 全流程前端
 
 - 2026-05-05：修正登录/注册页用户名、邮箱和密码图标输入框的 focus 样式，点击后只显示外层高亮，不再出现内部重复描边。
-- 2026-05-05：回忆库时间线行支持点击展开正文详情，正文按安全 Markdown 渲染；心情筛选只显示真实填写过的心情，不再使用默认兜底标签。
-- 2026-05-05：新增/编辑回忆表单的心情字段改为常见选项下拉选择，正文编辑区增加 Markdown 工具栏和安全预览。
+- 2026-05-05：回忆库时间线行点击后进入独立回忆详情页，详情页展示完整正文和全部照片/视频；心情筛选只显示真实填写过的心情，不再使用默认兜底标签。
+- 2026-05-05：新增/编辑回忆表单的心情字段改为常见选项下拉选择，正文恢复为普通文本输入。
 - 2026-05-05：新增/编辑回忆表单在移动端隐藏手机扫码上传二维码和上传状态卡片，桌面端保留。
 - 用户可见页面已切换为 React/Vite 前端体验层，Django Template 现在主要负责输出 `#memoirs-root` 和初始 JSON 上下文。
 - React 源码位于 `frontend/`，构建产物输出到 `static/frontend/app.js` 与 `static/frontend/app.css`。
@@ -12,7 +12,7 @@
 - 回忆库首页已按参考图改为左侧深墨绿档案栏、顶部搜索筛选和紧凑时间线行；不要再改回营销型 Hero 或瀑布流卡片。
 - 侧栏、时间排序、视图按钮和头像都应保持真实交互；头像只打开账号菜单，不能直接退出。
 - 时间线视图只显示填写了回忆日期的条目；未写日期的回忆保留在全部列表。
-- 时间线行只展示真实媒体缩略图，不为缺失媒体显示空占位框。
+- 时间线行只展示真实媒体缩略图，不为缺失媒体显示空占位框；点击行主体进入详情页，点击媒体缩略图仍打开预览弹层。
 - `/api/memoirs/` 的统计包含 `memoirs`、`media`、`photos`、`videos`，没有信笺模型时不要虚构信笺数量。
 - 新增 Django JSON API：认证、会话、回忆列表/创建/编辑/删除、手机上传会话。
 - `templates/base.html` 给 `static/frontend/app.js` 和 `app.css` 带前端版本参数；更新前端界面后同步 bump，避免浏览器缓存旧界面。
@@ -71,7 +71,7 @@
 │   └── wsgi.py
 ├── memories/                # 核心应用
 │   ├── models.py            # Memoir 与 MemoirMedia 模型
-│   ├── views.py             # 列表、创建、编辑、删除、手机上传、受保护媒体访问
+│   ├── views.py             # 列表、详情、创建、编辑、删除、手机上传、受保护媒体访问
 │   ├── forms.py             # MemoirForm
 │   ├── urls.py              # 应用路由
 │   ├── admin.py             # 后台管理配置
@@ -82,6 +82,7 @@
 │   ├── registration/login.html
 │   └── memories/
 │       ├── memoir_list.html
+│       ├── memoir_detail.html
 │       └── memoir_form.html
 ├── frontend/                # React/Vite 源码
 ├── static/
@@ -169,10 +170,11 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - 展示回忆总数、照片数和视频数。
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。
-- 使用左侧档案栏和紧凑时间线行展示日期、真实媒体缩略图、标题摘要、地点、心情、媒体数、编辑和删除操作。
+- 使用左侧档案栏和紧凑时间线行展示日期、真实媒体缩略图、标题摘要、地点、心情、媒体数、编辑和删除操作；行主体点击进入详情页。
 - 侧栏地点/心情/信笺/媒体是客户端筛选视图，时间排序切换升降序，视图按钮切换列表与媒体密度。
 - 展示图片和视频缩略内容。
 - 点击媒体可以打开前端预览弹层。
+- 点击回忆行主体会打开 `/memoirs/<uuid>/` 详情页，集中展示完整正文和全部媒体。
 
 ### 新增与编辑回忆
 
@@ -245,6 +247,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - `/`：回忆列表，名称 `memoir_list`
 - `/memoirs/`：回忆列表备用路径，名称 `memoir_list_alt`
 - `/memoirs/new/`：新增回忆，名称 `memoir_create`
+- `/memoirs/<uuid:pk>/`：回忆详情，名称 `memoir_detail`
 - `/memoirs/<uuid:pk>/edit/`：编辑回忆，名称 `memoir_update`
 - `/memoirs/<uuid:pk>/delete/`：删除回忆，名称 `memoir_delete`
 - `/protected-media/<path:file_path>`：受保护媒体读取，名称 `protected_media`

@@ -34,6 +34,7 @@
 - 回忆库侧栏是可交互的客户端视图切换：地点、心情、信笺和媒体会筛选当前列表，回收站显示空态；时间排序可切换升降序，视图按钮可切换列表/媒体密度。
 - 时间线视图只显示填写了 `memoryDate` 的回忆；未写日期的回忆保留在 `记忆中的TA` 全部列表中。
 - 时间线行只渲染真实存在的媒体缩略图；没有媒体或媒体数量不足时不显示空占位框。
+- 时间线行点击后进入独立回忆详情页，详情页展示完整正文和全部照片/视频。
 - 用户可见界面由 React/Vite 接管，覆盖登录/注册、回忆库、编辑器和手机上传页面。
 - Django Template 负责输出 React 挂载壳与初始 JSON 上下文，后续交互通过 Django JSON API 完成。
 - 支持 Django Admin 后台管理回忆和媒体。
@@ -74,7 +75,7 @@ E:\Memoirs
 │   └── wsgi.py
 ├── memories/                        # 核心应用
 │   ├── models.py                    # Memoir 与 MemoirMedia 模型
-│   ├── views.py                     # 页面视图、上传、删除、私有媒体读取
+│   ├── views.py                     # 页面视图、详情、上传、删除、私有媒体读取
 │   ├── forms.py                     # 注册表单与回忆表单
 │   ├── urls.py                      # 应用路由
 │   ├── admin.py                     # Admin 后台配置
@@ -92,6 +93,7 @@ E:\Memoirs
 │   │   └── register.html            # 注册页标题壳
 │   └── memories/
 │       ├── memoir_list.html         # 回忆列表页标题壳
+│       ├── memoir_detail.html       # 回忆详情页标题壳
 │       ├── memoir_form.html         # 新增/编辑回忆页标题壳
 │       └── mobile_upload.html       # 手机上传页标题壳
 ├── frontend/                        # React/Vite 前端源码
@@ -170,9 +172,10 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 | `templates/registration/login.html` | 登录页标题壳 |
 | `templates/registration/register.html` | 注册页标题壳 |
 | `templates/memories/memoir_list.html` | 回忆库标题壳 |
+| `templates/memories/memoir_detail.html` | 回忆详情标题壳 |
 | `templates/memories/memoir_form.html` | 新增/编辑标题壳 |
 | `templates/memories/mobile_upload.html` | 手机上传标题壳 |
-| `frontend/src/components/` | 登录/注册、回忆库、编辑器、手机上传和媒体预览组件 |
+| `frontend/src/components/` | 登录/注册、回忆库、详情页、编辑器、手机上传和媒体预览组件 |
 | `frontend/src/lib/` | 初始上下文、CSRF、fetch API 和共享类型 |
 | `frontend/src/styles/app.css` | 高端私人纪念册视觉系统源码 |
 | `static/frontend/app.js` / `app.css` | Django 实际引用的前端产物 |
@@ -201,9 +204,9 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 视觉方向固定为“纪念 TA 的高端私人回忆档案”：
 
 - 登录和注册页的图标输入框由 `.input-wrap` 统一承载焦点态，内部 `input` 不再重复渲染 focus 阴影，避免点击用户名/密码框时出现双层边框。
-- 回忆库时间线行可点击展开正文详情，正文通过 React Markdown 渲染组件安全展示标题、列表、引用、代码、链接、粗体和斜体。
+- 回忆库时间线行点击后进入独立详情页，详情页展示完整普通文本正文和全部照片/视频。
 - 心情筛选栏只来自当前用户真实填写过的 `mood` 值；没有心情数据时只显示“全部”，不再展示默认兜底心情标签。
-- 新增/编辑回忆表单中，`mood` 前端输入使用常见心情下拉选项；正文 textarea 由 Markdown 工具栏辅助输入，并可切换安全预览。
+- 新增/编辑回忆表单中，`mood` 前端输入使用常见心情下拉选项；正文 textarea 保持普通文本输入。
 - 新增/编辑回忆表单在移动端隐藏 `.qr-card` 二维码上传入口和 `.phone-status-card` 上传状态卡片；桌面端继续显示，用于从手机扫码上传媒体。
 - 页面文案使用“TA”“旧时光”“回忆”“私密保存”，不直接放大“前任”。
 - 主色为深墨绿，辅以暖白纸感、古金和石墨色；删除/危险动作使用柔和珊瑚色。
@@ -346,6 +349,7 @@ ALLOW_PUBLIC_REGISTRATION = env_bool("ALLOW_PUBLIC_REGISTRATION", DEBUG)
 - 地点和心情标签。
 - 正文摘要。
 - 媒体数量、修改入口和删除按钮。
+- 点击行主体进入回忆详情页；点击媒体缩略图仍打开预览弹层，点击修改/删除只执行对应操作。
 
 删除回忆使用 POST 表单，并通过浏览器 `confirm` 弹窗二次确认：
 
@@ -363,7 +367,19 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 
 这些属性现在由 React 的媒体预览组件读取，用来创建预览弹层内容；旧 `static/js/app.js` 不再作为主入口引用。
 
-### 2.6 新增/编辑回忆页
+### 2.6 回忆详情页
+
+文件：`templates/memories/memoir_detail.html`
+
+路由：
+
+```text
+/memoirs/<uuid>/
+```
+
+详情页由 `memoir_detail` 视图传入单条 `Memoir` 的序列化数据，React 渲染完整标题、日期、地点、心情、普通文本正文和全部照片/视频。媒体缩略图可以继续打开预览弹层，右侧整理区域提供编辑入口。
+
+### 2.7 新增/编辑回忆页
 
 文件：`templates/memories/memoir_form.html`
 
@@ -428,7 +444,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 - 保存时，勾选的媒体记录会被删除。
 - 删除媒体记录会触发模型信号，同步删除磁盘文件。
 
-### 2.7 CSS 视觉系统
+### 2.8 CSS 视觉系统
 
 文件：`frontend/src/styles/app.css`，构建产物为 `static/frontend/app.css`
 
@@ -477,7 +493,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 - `.login-shell` / `.login-scene` / `.login-card`：登录注册页面。
 - `.preview-backdrop` / `.preview-dialog`：媒体预览弹层。
 
-### 2.8 响应式适配
+### 2.9 响应式适配
 
 CSS 里主要使用三个断点：
 
@@ -497,7 +513,7 @@ CSS 里主要使用三个断点：
 - 图片/视频缩略图从两列进一步降为单列。
 - 登录卡片减少内边距。
 
-### 2.9 JavaScript 交互
+### 2.10 JavaScript 交互
 
 文件：`frontend/src/` 下的 React 组件，构建产物为 `static/frontend/app.js`
 
@@ -689,6 +705,7 @@ admin.site.index_title = "后台管理"
 | `/` | `memoir_list` | `memoir_list` | GET | 回忆列表首页 |
 | `/memoirs/` | `memoir_list_alt` | `memoir_list` | GET | 回忆列表备用路径 |
 | `/memoirs/new/` | `memoir_create` | `memoir_create` | GET/POST | 新增回忆 |
+| `/memoirs/<uuid:pk>/` | `memoir_detail` | `memoir_detail` | GET | 回忆详情 |
 | `/memoirs/<uuid:pk>/edit/` | `memoir_update` | `memoir_update` | GET/POST | 编辑回忆 |
 | `/memoirs/<uuid:pk>/delete/` | `memoir_delete` | `memoir_delete` | POST | 删除回忆 |
 | `/mobile-upload/<str:token>/` | `mobile_upload` | `mobile_upload` | GET/POST | 手机端限时上传页 |
@@ -2080,7 +2097,7 @@ ALLOW_PUBLIC_REGISTRATION=False
 - 更完善的标签体系。
 - 按年份/月度归档。
 - 收藏或置顶。
-- 回忆详情页。
+- 详情页评论、置顶或更多排版能力。
 - 富文本编辑。
 - 数据备份导出。
 - 对象存储替代本地 Volume。

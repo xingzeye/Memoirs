@@ -1,4 +1,4 @@
-export type AppPage = "auth" | "archive" | "editor" | "mobile-upload";
+export type AppPage = "auth" | "archive" | "detail" | "editor" | "mobile-upload";
 
 export type AppRoutes = {
   session?: string;
@@ -45,6 +45,7 @@ export type Memoir = {
   mediaCount: number;
   media: MediaItem[];
   urls: {
+    detail: string;
     edit: string;
     delete: string;
     api: string;

@@ -7,6 +7,7 @@ urlpatterns = [
     path("", views.memoir_list, name="memoir_list"),
     path("memoirs/", views.memoir_list, name="memoir_list_alt"),
     path("memoirs/new/", views.memoir_create, name="memoir_create"),
+    path("memoirs/<uuid:pk>/", views.memoir_detail, name="memoir_detail"),
     path("memoirs/<uuid:pk>/edit/", views.memoir_update, name="memoir_update"),
     path("memoirs/<uuid:pk>/delete/", views.memoir_delete, name="memoir_delete"),
     path("mobile-upload/<str:token>/", views.mobile_upload, name="mobile_upload"),

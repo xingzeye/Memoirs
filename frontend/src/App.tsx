@@ -3,6 +3,7 @@ import { apiJson } from "./lib/api";
 import type { AppSession, InitialData } from "./lib/types";
 import { ArchiveScreen } from "./components/ArchiveScreen";
 import { AuthScreen } from "./components/AuthScreen";
+import { MemoirDetailScreen } from "./components/MemoirDetailScreen";
 import { MemoirEditorScreen } from "./components/MemoirEditorScreen";
 import { MobileUploadScreen } from "./components/MobileUploadScreen";
 
@@ -25,6 +26,10 @@ export function App({ initialData }: AppProps) {
 
   if (initialData.page === "editor") {
     return <MemoirEditorScreen session={session} payload={initialData.payload} onLogout={logout} />;
+  }
+
+  if (initialData.page === "detail") {
+    return <MemoirDetailScreen session={session} payload={initialData.payload} onLogout={logout} />;
   }
 
   if (initialData.page === "mobile-upload") {
