@@ -165,7 +165,7 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 - `templates/base.html` 引用前端产物时带固定版本参数；重做用户界面后应更新该参数，避免浏览器继续缓存旧 bundle。
 - `frontend/src/` 是 React/Vite 源码。
 - 由于本机环境可能没有 `npm`，仓库保留了轻量 `static/frontend/app.js` fallback；正式前端更新应运行 Vite 构建覆盖它。
-- 移动端性能优先使用 `static/images/*.webp` 背景图，PNG 只作为 CSS fallback；时间线和详情页视频缩略图使用 `preload="none"`，避免列表首屏提前下载视频数据。
+- 移动端性能优先使用 `static/images/*.webp` 背景图，PNG 只作为 CSS fallback；时间线和详情页视频缩略图使用 `preload="metadata"` 与 `playsInline`，只取首帧元数据用于预览，不提前完整加载视频。
 
 主要前端文件：
 
