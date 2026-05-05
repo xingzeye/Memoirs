@@ -92,6 +92,10 @@ def session_payload(request: HttpRequest) -> dict[str, object]:
         "allowPublicRegistration": settings.ALLOW_PUBLIC_REGISTRATION,
         "csrfToken": get_token(request),
         "routes": app_routes(),
+        "uploadLimits": {
+            "maxRequestBytes": settings.DATA_UPLOAD_MAX_MEMORY_SIZE,
+            "maxMemoryFileBytes": settings.FILE_UPLOAD_MAX_MEMORY_SIZE,
+        },
     }
 
 

@@ -27,6 +27,7 @@
 - 支持编辑回忆时追加媒体文件，或删除已有媒体文件。
 - 支持电脑端显示二维码，手机扫码后从手机相册上传照片或视频。
 - 支持电脑直接选择文件和手机上传文件的缩略预览。
+- 前端从会话上下文读取上传大小限制，选择文件时会拦截超过上限的照片/视频；提交时遇到非 JSON 的 400/413 上传失败响应也会显示明确中文提示。
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。
 - 支持回忆列表中的图片/视频预览弹层。
@@ -159,6 +160,7 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 
 - `#memoirs-root` 是 React 挂载节点。
 - `memoirs-initial-data` 注入当前页面、登录态、CSRF token、路由和首屏数据。
+- `session.uploadLimits` 注入当前上传大小限制，供前端在用户选择视频或照片时提前给出明确提示。
 - `static/frontend/app.css` 与 `static/frontend/app.js` 是 Django 实际引用的前端产物。
 - `templates/base.html` 引用前端产物时带固定版本参数；重做用户界面后应更新该参数，避免浏览器继续缓存旧 bundle。
 - `frontend/src/` 是 React/Vite 源码。
