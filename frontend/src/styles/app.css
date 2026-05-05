@@ -242,6 +242,7 @@ p {
 }
 
 .input-wrap svg {
+  flex: 0 0 auto;
   color: var(--muted);
 }
 
@@ -259,10 +260,17 @@ select {
 }
 
 .input-wrap input {
+  flex: 1;
+  min-width: 0;
   min-height: 50px;
   border: 0;
   background: transparent;
   padding: 0;
+}
+
+.input-wrap input:focus {
+  border-color: transparent;
+  box-shadow: none;
 }
 
 textarea {
@@ -924,6 +932,22 @@ select:focus,
   gap: 16px;
   align-items: center;
   padding: 12px 16px;
+  cursor: pointer;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.timeline-row:hover {
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.timeline-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(31, 117, 105, 0.38);
+}
+
+.timeline-row.expanded {
+  align-items: start;
+  background: rgba(255, 253, 248, 0.95);
 }
 
 .timeline-row.no-media {
@@ -1107,6 +1131,106 @@ select:focus,
   gap: 10px;
 }
 
+.timeline-detail {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 10px;
+  margin-top: 2px;
+  border-top: 1px solid #e8e3da;
+  padding: 14px 0 2px 92px;
+  cursor: auto;
+}
+
+.timeline-detail-title {
+  color: #27312e;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.markdown-body {
+  display: grid;
+  max-width: 780px;
+  gap: 10px;
+  color: #3f4d48;
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.72;
+}
+
+.markdown-body :where(h1, h2, h3, h4, p, ul, ol, blockquote, pre),
+.markdown-empty {
+  margin: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  color: #1f2d29;
+  line-height: 1.24;
+}
+
+.markdown-body h1 {
+  font-size: 1.28rem;
+}
+
+.markdown-body h2 {
+  font-size: 1.12rem;
+}
+
+.markdown-body h3,
+.markdown-body h4 {
+  font-size: 1rem;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  display: grid;
+  gap: 6px;
+  padding-left: 1.35rem;
+}
+
+.markdown-body blockquote {
+  border-left: 3px solid rgba(31, 117, 105, 0.32);
+  color: #66706b;
+  padding-left: 12px;
+}
+
+.markdown-body a {
+  color: var(--teal);
+  font-weight: 850;
+  text-decoration: underline;
+  text-decoration-color: rgba(31, 117, 105, 0.3);
+  text-underline-offset: 3px;
+}
+
+.markdown-body code {
+  border: 1px solid rgba(31, 117, 105, 0.14);
+  border-radius: 5px;
+  background: #edf4f1;
+  color: #214943;
+  padding: 1px 5px;
+  font-size: 0.86em;
+}
+
+.markdown-body pre {
+  overflow-x: auto;
+  border: 1px solid #dedbd2;
+  border-radius: 8px;
+  background: #f5f2ea;
+  padding: 12px;
+}
+
+.markdown-body pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.markdown-empty {
+  color: #8a8178;
+}
+
 .timeline-icon-button {
   display: inline-flex;
   width: 28px;
@@ -1169,6 +1293,52 @@ select:focus,
   color: var(--teal);
   font-size: 0.9rem;
   font-weight: 900;
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.markdown-field {
+  gap: 10px;
+}
+
+.markdown-toolbar {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.markdown-toolbar button {
+  display: inline-flex;
+  width: 32px;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dedbd2;
+  border-radius: 6px;
+  background: rgba(255, 255, 252, 0.9);
+  color: #46534f;
+  padding: 0;
+}
+
+.markdown-toolbar button:hover,
+.markdown-toolbar button[aria-pressed="true"] {
+  border-color: rgba(31, 117, 105, 0.34);
+  background: #e0eee9;
+  color: var(--teal);
+}
+
+.markdown-preview-panel {
+  min-height: 140px;
+  border: 1px solid #dedbd2;
+  border-radius: 8px;
+  background: rgba(255, 254, 250, 0.9);
+  padding: 14px;
 }
 
 .editor-grid {
@@ -1545,6 +1715,15 @@ select:focus,
   .auth-panel {
     width: min(100vw - 24px, 430px);
   }
+
+  .field-label-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .markdown-toolbar {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 1160px) {
@@ -1636,6 +1815,11 @@ select:focus,
 }
 
 @media (max-width: 760px) {
+  .editor-side .qr-card,
+  .editor-side .phone-status-card {
+    display: none;
+  }
+
   .archive-sidebar {
     grid-template-columns: 1fr;
   }
@@ -1750,6 +1934,29 @@ select:focus,
 
   .timeline-actions {
     grid-area: actions;
+  }
+
+  .timeline-row.expanded {
+    grid-template-areas:
+      "date copy"
+      "media media"
+      "location mood"
+      "count actions"
+      "detail detail";
+  }
+
+  .timeline-row.expanded.no-media,
+  .archive-timeline.media-view .timeline-row.expanded.no-media {
+    grid-template-areas:
+      "date copy"
+      "location mood"
+      "count actions"
+      "detail detail";
+  }
+
+  .timeline-detail {
+    grid-area: detail;
+    padding: 12px 0 0;
   }
 }
 
