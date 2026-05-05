@@ -18,6 +18,7 @@
 - 新增 Django JSON API：认证、会话、回忆列表/创建/编辑/删除、手机上传会话。
 - `templates/base.html` 给 `static/frontend/app.js` 和 `app.css` 带前端版本参数；更新前端界面后同步 bump，避免浏览器缓存旧界面。
 - 项目内视觉资产位于 `static/images/`，不要重新引入远程 Unsplash 等外链背景图。
+- 移动端性能优化使用压缩后的 WebP 背景图并保留 PNG fallback；列表和详情页的视频缩略图保持 `preload="none"`，不要在首屏提前下载视频。
 - 由于本机当前 PATH/conda 环境可能没有 `npm`，前端构建前需要先安装或启用 npm；后端验证使用 `conda run -n memoirs python ...`。
 - `static/frontend/app.js` 保留轻量 fallback，正式更新前端后应运行 Vite 构建覆盖它。
 

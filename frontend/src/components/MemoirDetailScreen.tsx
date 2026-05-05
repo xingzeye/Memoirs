@@ -86,7 +86,7 @@ export function MemoirDetailScreen({ session, payload, onLogout }: MemoirDetailS
               <div className="detail-media-grid">
                 {memoir.media.map((media) => (
                   <button key={media.id} type="button" onClick={() => setPreview(media)} aria-label={`预览 ${media.name}`}>
-                    {media.type === "video" ? <video src={media.url} muted preload="metadata" /> : <img src={media.url} alt={media.name} loading="lazy" />}
+                    {media.type === "video" ? <video src={media.url} muted preload="none" /> : <img src={media.url} alt={media.name} loading="lazy" decoding="async" />}
                     <span>
                       {media.type === "video" ? <Video size={15} /> : <Image size={15} />}
                       {media.name}

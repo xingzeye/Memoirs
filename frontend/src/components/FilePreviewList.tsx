@@ -23,9 +23,9 @@ export function FilePreviewList({ files, onRemove }: FilePreviewListProps) {
           <li key={item.id}>
             <span className="local-file-thumb">
               {isVideo ? (
-                <video src={item.url} muted preload="metadata" />
+                <video src={item.url} muted preload="none" />
               ) : (
-                <img src={item.url} alt={item.file.name} />
+                <img src={item.url} alt={item.file.name} decoding="async" />
               )}
             </span>
             <span className="local-file-meta">
