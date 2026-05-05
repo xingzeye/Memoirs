@@ -31,7 +31,10 @@ body {
   min-height: 100vh;
   background:
     linear-gradient(180deg, rgba(247, 241, 230, 0.92), rgba(242, 247, 243, 0.9)),
-    url("/static/images/archive-paper-texture.png");
+    image-set(
+      url("/static/images/archive-paper-texture.webp") type("image/webp"),
+      url("/static/images/archive-paper-texture.png") type("image/png")
+    );
   color: var(--ink);
   letter-spacing: 0;
   text-rendering: geometricPrecision;
@@ -81,7 +84,11 @@ video {
   grid-template-columns: minmax(360px, 1.08fr) minmax(360px, 0.92fr);
   background:
     linear-gradient(90deg, rgba(7, 20, 18, 0.12), rgba(255, 253, 248, 0.94) 56%),
-    url("/static/images/memoir-login-scene.png") left center / cover no-repeat;
+    image-set(
+        url("/static/images/memoir-login-scene.webp") type("image/webp"),
+        url("/static/images/memoir-login-scene.png") type("image/png")
+      )
+      left center / cover no-repeat;
 }
 
 .auth-art {
@@ -629,7 +636,10 @@ select:focus,
   grid-template-columns: 158px minmax(0, 1fr);
   background:
     linear-gradient(180deg, rgba(250, 249, 245, 0.96), rgba(246, 244, 238, 0.96)),
-    url("/static/images/archive-paper-texture.png");
+    image-set(
+      url("/static/images/archive-paper-texture.webp") type("image/webp"),
+      url("/static/images/archive-paper-texture.png") type("image/png")
+    );
   color: #1e2926;
 }
 
@@ -963,6 +973,14 @@ select:focus,
 
 .timeline-row + .timeline-row {
   border-top: 1px solid #e8e3da;
+}
+
+@supports (content-visibility: auto) {
+  .timeline-row,
+  .detail-section {
+    content-visibility: auto;
+    contain-intrinsic-size: 120px;
+  }
 }
 
 .timeline-date {
@@ -1616,7 +1634,10 @@ select:focus,
   place-items: center;
   background:
     linear-gradient(180deg, rgba(247, 241, 230, 0.94), rgba(242, 247, 243, 0.92)),
-    url("/static/images/archive-paper-texture.png");
+    image-set(
+      url("/static/images/archive-paper-texture.webp") type("image/webp"),
+      url("/static/images/archive-paper-texture.png") type("image/png")
+    );
   padding: 18px;
 }
 
@@ -1741,7 +1762,11 @@ select:focus,
     display: block;
     background:
       linear-gradient(180deg, rgba(255, 253, 248, 0.18), rgba(255, 253, 248, 0.98) 40%),
-      url("/static/images/memoir-login-scene.png") left top / auto 46vh no-repeat,
+      image-set(
+          url("/static/images/memoir-login-scene.webp") type("image/webp"),
+          url("/static/images/memoir-login-scene.png") type("image/png")
+        )
+        left top / auto 46vh no-repeat,
       var(--paper);
   }
 

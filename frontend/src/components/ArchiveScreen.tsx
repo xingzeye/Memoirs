@@ -393,7 +393,7 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
                           }}
                           aria-label={`预览 ${media.name}`}
                         >
-                          {media.type === "video" ? <video src={media.url} muted preload="metadata" /> : <img src={media.url} alt={media.name} loading="lazy" />}
+                          {media.type === "video" ? <video src={media.url} muted preload="none" /> : <img src={media.url} alt={media.name} loading="lazy" decoding="async" />}
                           {media.type === "video" ? <Video size={16} /> : null}
                         </button>
                       ))}
