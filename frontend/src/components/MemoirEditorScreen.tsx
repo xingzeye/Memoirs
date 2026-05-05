@@ -1,10 +1,9 @@
-import { Bold, CheckCircle2, Code2, Eye, Heading2, ImagePlus, Italic, List, Pilcrow, QrCode, Quote, Save, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, ImagePlus, QrCode, Save, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { apiForm } from "../lib/api";
 import type { AppSession, FormErrors, MediaItem, MobileUploadSession } from "../lib/types";
 import { Brand } from "./Brand";
 import { FilePreviewList, type LocalFilePreview } from "./FilePreviewList";
-import { MarkdownView } from "./MarkdownView";
 
 type EditorPayload = {
   mode?: "create" | "edit";
@@ -34,9 +33,6 @@ export function MemoirEditorScreen({ session, payload, onLogout }: MemoirEditorS
   const [deleteMedia, setDeleteMedia] = useState<Set<number>>(new Set());
   const [mobileUpload, setMobileUpload] = useState(payload.mobileUpload);
   const [pending, setPending] = useState(false);
-  const [storyValue, setStoryValue] = useState(values.story || "");
-  const [showMarkdownPreview, setShowMarkdownPreview] = useState(false);
-  const storyInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!mobileUpload?.statusUrl || !mobileUpload.active) return;
@@ -84,49 +80,6 @@ export function MemoirEditorScreen({ session, payload, onLogout }: MemoirEditorS
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
-    });
-  }
-
-  function insertMarkdown(prefix: string, suffix = "", fallback = "") {
-    const input = storyInputRef.current;
-    if (!input) {
-      setStoryValue((current) => `${current}${prefix}${fallback}${suffix}`);
-      return;
-    }
-
-    const start = input.selectionStart;
-    const end = input.selectionEnd;
-    const selected = storyValue.slice(start, end) || fallback;
-    const nextValue = `${storyValue.slice(0, start)}${prefix}${selected}${suffix}${storyValue.slice(end)}`;
-    setStoryValue(nextValue);
-
-    window.requestAnimationFrame(() => {
-      input.focus();
-      input.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
-    });
-  }
-
-  function insertLineMarkdown(prefix: string, fallback: string) {
-    const input = storyInputRef.current;
-    if (!input) {
-      setStoryValue((current) => `${current}${current ? "\n" : ""}${prefix}${fallback}`);
-      return;
-    }
-
-    const start = input.selectionStart;
-    const end = input.selectionEnd;
-    const lineStart = storyValue.lastIndexOf("\n", Math.max(start - 1, 0)) + 1;
-    const selected = storyValue.slice(lineStart, end) || fallback;
-    const nextLines = selected
-      .split("\n")
-      .map((line) => (line.trim() ? `${prefix}${line}` : line))
-      .join("\n");
-    const nextValue = `${storyValue.slice(0, lineStart)}${nextLines}${storyValue.slice(end)}`;
-    setStoryValue(nextValue);
-
-    window.requestAnimationFrame(() => {
-      input.focus();
-      input.setSelectionRange(lineStart + prefix.length, lineStart + nextLines.length);
     });
   }
 
@@ -196,39 +149,9 @@ export function MemoirEditorScreen({ session, payload, onLogout }: MemoirEditorS
             </label>
           </div>
 
-          <label className="field-block markdown-field">
-            <span className="field-label-row">
-              <span>故事（Markdown）</span>
-              <span className="markdown-toolbar" aria-label="Markdown 工具">
-                <button type="button" title="标题" aria-label="插入标题" onClick={() => insertLineMarkdown("## ", "小标题")}>
-                  <Heading2 size={15} />
-                </button>
-                <button type="button" title="粗体" aria-label="插入粗体" onClick={() => insertMarkdown("**", "**", "重点")}>
-                  <Bold size={15} />
-                </button>
-                <button type="button" title="斜体" aria-label="插入斜体" onClick={() => insertMarkdown("*", "*", "心情")}>
-                  <Italic size={15} />
-                </button>
-                <button type="button" title="列表" aria-label="插入列表" onClick={() => insertLineMarkdown("- ", "一件小事")}>
-                  <List size={15} />
-                </button>
-                <button type="button" title="引用" aria-label="插入引用" onClick={() => insertLineMarkdown("> ", "那天想记住的话")}>
-                  <Quote size={15} />
-                </button>
-                <button type="button" title="代码" aria-label="插入代码" onClick={() => insertMarkdown("`", "`", "code")}>
-                  <Code2 size={15} />
-                </button>
-                <button type="button" title="预览" aria-label="切换预览" aria-pressed={showMarkdownPreview} onClick={() => setShowMarkdownPreview((current) => !current)}>
-                  {showMarkdownPreview ? <Pilcrow size={15} /> : <Eye size={15} />}
-                </button>
-              </span>
-            </span>
-            <textarea ref={storyInputRef} name="story" value={storyValue} onChange={(event) => setStoryValue(event.target.value)} rows={8} placeholder="写下你想保存的细节。" />
-            {showMarkdownPreview ? (
-              <div className="markdown-preview-panel">
-                <MarkdownView value={storyValue} />
-              </div>
-            ) : null}
+          <label className="field-block">
+            <span>故事（正文）</span>
+            <textarea name="story" defaultValue={values.story || ""} rows={8} placeholder="写下你想保存的细节。" />
             {errors.story?.map((message) => <small key={message}>{message}</small>)}
           </label>
 

@@ -20,7 +20,6 @@ import {
 import { useMemo, useRef, useState } from "react";
 import { apiJson } from "../lib/api";
 import type { AppSession, MediaItem, Memoir } from "../lib/types";
-import { MarkdownView } from "./MarkdownView";
 import { MediaPreviewModal } from "./MediaPreviewModal";
 
 type ArchiveStats = {
@@ -156,7 +155,6 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
   const [preview, setPreview] = useState<MediaItem | null>(null);
   const [pendingDelete, setPendingDelete] = useState("");
-  const [expandedMemoirId, setExpandedMemoirId] = useState("");
   const [moodChoices, setMoodChoices] = useState(() => (payload.moodChoices?.length ? payload.moodChoices : deriveMoodChoices(payload.memoirs || [])));
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -174,7 +172,6 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
     setMemoirs(nextMemoirs);
     setStats(deriveStats(data.stats, nextMemoirs));
     setMoodChoices(data.moodChoices?.length ? data.moodChoices : deriveMoodChoices(nextMemoirs));
-    setExpandedMemoirId("");
   }
 
   async function submitSearch(event: React.FormEvent<HTMLFormElement>) {
@@ -191,7 +188,6 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
 
   async function chooseSection(section: SidebarSection) {
     setOpenPanel(null);
-    setExpandedMemoirId("");
     setActiveSection(section);
 
     if (section === "记忆中的TA") {
@@ -221,7 +217,6 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
       const nextMemoirs = memoirs.filter((item) => item.id !== memoir.id);
       setMemoirs(nextMemoirs);
       setMoodChoices(deriveMoodChoices(nextMemoirs));
-      if (expandedMemoirId === memoir.id) setExpandedMemoirId("");
       const removed = countMemoirMedia(memoir);
       setStats((current) => ({
         memoirs: Math.max(current.memoirs - 1, 0),
@@ -246,15 +241,15 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
     setOpenPanel((current) => (current === panel ? null : panel));
   }
 
-  function toggleExpandedMemoir(memoirId: string) {
-    setExpandedMemoirId((current) => (current === memoirId ? "" : memoirId));
+  function openMemoirDetail(memoir: Memoir) {
+    window.location.assign(memoir.urls.detail || memoir.urls.edit);
   }
 
-  function handleRowKeyDown(event: React.KeyboardEvent<HTMLElement>, memoirId: string) {
+  function handleRowKeyDown(event: React.KeyboardEvent<HTMLElement>, memoir: Memoir) {
     if (event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
-    toggleExpandedMemoir(memoirId);
+    openMemoirDetail(memoir);
   }
 
   const visibleMemoirs = useMemo(() => {
@@ -371,18 +366,14 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
             {visibleMemoirs.map((memoir) => {
               const parts = dateParts(memoir);
               const mediaSlots = memoir.media.slice(0, viewMode === "media" ? 3 : 2);
-              const isExpanded = expandedMemoirId === memoir.id;
-              const detailId = `memoir-detail-${memoir.id}`;
-              const rowClassName = `timeline-row media-count-${mediaSlots.length}${mediaSlots.length ? "" : " no-media"}${isExpanded ? " expanded" : ""}`;
+              const rowClassName = `timeline-row media-count-${mediaSlots.length}${mediaSlots.length ? "" : " no-media"}`;
               return (
                 <article
                   className={rowClassName}
                   key={memoir.id}
                   tabIndex={0}
-                  aria-expanded={isExpanded}
-                  aria-controls={detailId}
-                  onClick={() => toggleExpandedMemoir(memoir.id)}
-                  onKeyDown={(event) => handleRowKeyDown(event, memoir.id)}
+                  onClick={() => openMemoirDetail(memoir)}
+                  onKeyDown={(event) => handleRowKeyDown(event, memoir)}
                 >
                   <time className="timeline-date" dateTime={memoir.memoryDate || undefined}>
                     <span>{parts.year}</span>
@@ -442,13 +433,6 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
                       <Trash2 size={15} />
                     </button>
                   </div>
-
-                  {isExpanded ? (
-                    <div className="timeline-detail" id={detailId} onClick={(event) => event.stopPropagation()}>
-                      <strong className="timeline-detail-title">正文</strong>
-                      <MarkdownView value={memoir.story} />
-                    </div>
-                  ) : null}
                 </article>
               );
             })}

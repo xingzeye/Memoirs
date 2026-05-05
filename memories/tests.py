@@ -220,8 +220,14 @@ class MemoirViewTests(TestCase):
 
         response = self.client.get(reverse("memoir_list"))
 
+        detail_url = reverse("memoir_detail", kwargs={"pk": memoir.pk})
+        self.assertContains(response, detail_url)
         self.assertContains(response, reverse("memoir_update", kwargs={"pk": memoir.pk}))
         self.assertContains(response, '"page": "archive"')
+        detail_response = self.client.get(detail_url)
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, '"page": "detail"')
+        self.assertContains(detail_response, "photo.jpg")
         response = self.client.get(reverse("api_memoirs"))
         stats = response.json()["stats"]
         self.assertEqual(stats["memoirs"], 1)
