@@ -7,6 +7,8 @@
 - 2026-05-05：新增/编辑回忆表单的心情字段改为常见选项下拉选择，正文恢复为普通文本输入。
 - 2026-05-05：新增/编辑回忆表单在移动端隐藏手机扫码上传二维码和上传状态卡片，桌面端保留。
 - 2026-05-05：新增/编辑回忆表单会读取 `session.uploadLimits`，选择超大照片/视频时提前提示；提交遇到非 JSON 上传错误时也显示明确中文原因。
+- 2026-05-06：新增 `/memoirs/media/` 全站相册页，集中展示当前账号全部图片和视频；相册格子和详情页媒体卡片不显示文件名文字。
+- 2026-05-06：受保护媒体支持 `Range` 分段读取、私有缓存头和 `?download=1` 原文件下载；图片缩略图通过 `/protected-media-thumbnails/<media_id>/` 按需生成 WebP。
 - 用户可见页面已切换为 React/Vite 前端体验层，Django Template 现在主要负责输出 `#memoirs-root` 和初始 JSON 上下文。
 - React 源码位于 `frontend/`，构建产物输出到 `static/frontend/app.js` 与 `static/frontend/app.css`。
 - 当前视觉方向是“纪念 TA 的高端私人回忆档案”：文案使用“TA”“旧时光”“回忆”“私密保存”，不要在 UI 中直接放大“前任”。
@@ -18,7 +20,7 @@
 - 新增 Django JSON API：认证、会话、回忆列表/创建/编辑/删除、手机上传会话。
 - `templates/base.html` 给 `static/frontend/app.js` 和 `app.css` 带前端版本参数；更新前端界面后同步 bump，避免浏览器缓存旧界面。
 - 项目内视觉资产位于 `static/images/`，不要重新引入远程 Unsplash 等外链背景图。
-- 移动端性能优化使用压缩后的 WebP 背景图并保留 PNG fallback；列表和详情页的视频缩略图保持 `preload="metadata"` 与 `playsInline`，显示首帧预览但不要提前完整加载视频。
+- 移动端性能优化使用压缩后的 WebP 背景图并保留 PNG fallback；图片缩略图优先走受保护 WebP 缓存，视频缩略图只在接近视口时设置 `src`，并保持 `preload="metadata"` 与 `playsInline`。
 - 由于本机当前 PATH/conda 环境可能没有 `npm`，前端构建前需要先安装或启用 npm；后端验证使用 `conda run -n memoirs python ...`。
 - `static/frontend/app.js` 保留轻量 fallback，正式更新前端后应运行 Vite 构建覆盖它。
 
@@ -149,7 +151,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - 未登录用户访问核心页面会被重定向到登录页。
 - 普通用户只能查看、编辑、删除自己的回忆。
 - 媒体文件通过受保护视图读取，不直接暴露 `media/` 下的静态访问。
-- 媒体访问允许文件所属用户或 staff 用户访问，其他用户返回 404。
+- 媒体访问允许文件所属用户或 staff 用户访问，其他用户返回 404；原文件下载使用 `?download=1`，视频/媒体读取支持 `Range`。
 
 ### 回忆列表
 
@@ -173,9 +175,10 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。
 - 使用左侧档案栏和紧凑时间线行展示日期、真实媒体缩略图、标题摘要、地点、心情、媒体数、编辑和删除操作；行主体点击进入详情页。
-- 侧栏地点/心情/信笺/媒体是客户端筛选视图，时间排序切换升降序，视图按钮切换列表与媒体密度。
+- 侧栏地点/心情/信笺是客户端筛选视图；媒体入口跳转到全站相册页；时间排序切换升降序，视图按钮切换列表与媒体密度。
 - 展示图片和视频缩略内容。
 - 点击媒体可以打开前端预览弹层。
+- 预览弹层不显示文件名正文，提供下载原图/原视频按钮。
 - 点击回忆行主体会打开 `/memoirs/<uuid>/` 详情页，集中展示完整正文和全部媒体。
 
 ### 新增与编辑回忆
@@ -248,11 +251,13 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 
 - `/`：回忆列表，名称 `memoir_list`
 - `/memoirs/`：回忆列表备用路径，名称 `memoir_list_alt`
+- `/memoirs/media/`：全站媒体相册，名称 `media_gallery`
 - `/memoirs/new/`：新增回忆，名称 `memoir_create`
 - `/memoirs/<uuid:pk>/`：回忆详情，名称 `memoir_detail`
 - `/memoirs/<uuid:pk>/edit/`：编辑回忆，名称 `memoir_update`
 - `/memoirs/<uuid:pk>/delete/`：删除回忆，名称 `memoir_delete`
-- `/protected-media/<path:file_path>`：受保护媒体读取，名称 `protected_media`
+- `/protected-media/<path:file_path>`：受保护媒体读取和原文件下载，名称 `protected_media`
+- `/protected-media-thumbnails/<int:media_id>/`：受保护图片 WebP 缩略图，名称 `protected_media_thumbnail`
 
 ## 管理后台
 
@@ -274,7 +279,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 
 - `templates/base.html`：加载 `static/frontend/app.css`、输出 `#memoirs-root`、写入 `memoirs-initial-data` JSON、加载 `static/frontend/app.js`。
 - `templates/registration/login.html`、`templates/registration/register.html`、`templates/memories/*.html`：仅设置页面标题并继承 React 挂载壳。
-- `frontend/src/components/`：登录/注册、回忆库、编辑器、手机上传和媒体预览组件。
+- `frontend/src/components/`：登录/注册、回忆库、全站相册、编辑器、手机上传和媒体预览组件。
 - `frontend/src/lib/`：初始上下文、CSRF、fetch API 和共享类型。
 
 静态资源：

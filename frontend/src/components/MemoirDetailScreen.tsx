@@ -1,7 +1,8 @@
-import { ArrowLeft, CalendarDays, Edit3, Heart, Image, MapPin, Video } from "lucide-react";
+import { ArrowLeft, CalendarDays, Edit3, Heart, MapPin } from "lucide-react";
 import { useState } from "react";
 import type { AppSession, MediaItem, Memoir } from "../lib/types";
 import { Brand } from "./Brand";
+import { MediaThumbnail } from "./MediaThumbnail";
 import { MediaPreviewModal } from "./MediaPreviewModal";
 
 type DetailPayload = {
@@ -86,11 +87,7 @@ export function MemoirDetailScreen({ session, payload, onLogout }: MemoirDetailS
               <div className="detail-media-grid">
                 {memoir.media.map((media) => (
                   <button key={media.id} type="button" onClick={() => setPreview(media)} aria-label={`预览 ${media.name}`}>
-                    {media.type === "video" ? <video src={media.url} muted playsInline preload="metadata" /> : <img src={media.url} alt={media.name} loading="lazy" decoding="async" />}
-                    <span>
-                      {media.type === "video" ? <Video size={15} /> : <Image size={15} />}
-                      {media.name}
-                    </span>
+                    <MediaThumbnail media={media} />
                   </button>
                 ))}
               </div>

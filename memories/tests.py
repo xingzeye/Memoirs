@@ -1,4 +1,5 @@
 from datetime import timedelta
+from io import BytesIO
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
@@ -6,11 +7,21 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
 from .models import Memoir, MemoirMedia, MobileUploadItem, MobileUploadSession
 
 
 TEST_MEDIA_ROOT = Path(__file__).resolve().parents[1] / ".test-media"
+
+
+def tiny_png_bytes() -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (2, 2), color=(31, 117, 105)).save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+TINY_PNG_BYTES = tiny_png_bytes()
 
 
 @override_settings(MEDIA_ROOT=TEST_MEDIA_ROOT)
@@ -24,7 +35,7 @@ class MemoirViewTests(TestCase):
         self.client.login(username="owner", password="secret12345")
 
     def test_core_pages_require_login(self):
-        for url in [reverse("memoir_list"), reverse("memoir_create")]:
+        for url in [reverse("memoir_list"), reverse("media_gallery"), reverse("memoir_create")]:
             response = self.client.get(url)
             self.assertEqual(response.status_code, 302)
             self.assertIn(reverse("login"), response["Location"])
@@ -236,6 +247,34 @@ class MemoirViewTests(TestCase):
         self.assertEqual(stats["photos"], 1)
         self.assertEqual(stats["videos"], 1)
 
+    def test_media_gallery_only_includes_current_user_media(self):
+        owner_memoir = Memoir.objects.create(title="Owner memory", owner=self.user)
+        other_memoir = Memoir.objects.create(title="Other memory", owner=self.other_user)
+        MemoirMedia.objects.create(
+            memoir=owner_memoir,
+            file=SimpleUploadedFile("owner.jpg", TINY_PNG_BYTES, content_type="image/png"),
+            original_filename="owner.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/png",
+            size=len(TINY_PNG_BYTES),
+        )
+        MemoirMedia.objects.create(
+            memoir=other_memoir,
+            file=SimpleUploadedFile("other.jpg", TINY_PNG_BYTES, content_type="image/png"),
+            original_filename="other.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/png",
+            size=len(TINY_PNG_BYTES),
+        )
+
+        self.login()
+        response = self.client.get(reverse("media_gallery"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '"page": "media-gallery"')
+        self.assertContains(response, "owner.jpg")
+        self.assertNotContains(response, "other.jpg")
+
     def test_update_memoir_changes_fields_and_removes_media(self):
         self.login()
         memoir = Memoir.objects.create(title="旧标题", story="旧正文", owner=self.user)
@@ -313,4 +352,83 @@ class MemoirViewTests(TestCase):
         self.login()
         response = self.client.get(media.protected_url)
         self.assertEqual(response.status_code, 200)
+        response.close()
+
+    def test_protected_media_download_uses_original_filename(self):
+        memoir = Memoir.objects.create(title="下载", owner=self.user)
+        media = MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("stored.jpg", TINY_PNG_BYTES, content_type="image/png"),
+            original_filename="original-photo.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/png",
+            size=len(TINY_PNG_BYTES),
+        )
+
+        self.login()
+        response = self.client.get(f"{media.protected_url}?download=1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertIn("original-photo.jpg", response["Content-Disposition"])
+        response.close()
+
+    def test_protected_media_supports_byte_ranges(self):
+        memoir = Memoir.objects.create(title="视频", owner=self.user)
+        media = MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("clip.mp4", b"0123456789", content_type="video/mp4"),
+            original_filename="clip.mp4",
+            media_type=MemoirMedia.MediaType.VIDEO,
+            mime_type="video/mp4",
+            size=10,
+        )
+
+        self.login()
+        response = self.client.get(media.protected_url, HTTP_RANGE="bytes=2-5")
+
+        self.assertEqual(response.status_code, 206)
+        self.assertEqual(response["Accept-Ranges"], "bytes")
+        self.assertEqual(response["Content-Range"], "bytes 2-5/10")
+        self.assertEqual(b"".join(response.streaming_content), b"2345")
+        response.close()
+
+    def test_protected_media_rejects_invalid_byte_ranges(self):
+        memoir = Memoir.objects.create(title="视频", owner=self.user)
+        media = MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("clip.mp4", b"0123456789", content_type="video/mp4"),
+            original_filename="clip.mp4",
+            media_type=MemoirMedia.MediaType.VIDEO,
+            mime_type="video/mp4",
+            size=10,
+        )
+
+        self.login()
+        response = self.client.get(media.protected_url, HTTP_RANGE="bytes=20-30")
+
+        self.assertEqual(response.status_code, 416)
+        self.assertEqual(response["Content-Range"], "bytes */10")
+
+    def test_protected_thumbnail_is_owner_only(self):
+        memoir = Memoir.objects.create(title="缩略图", owner=self.user)
+        media = MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("photo.png", TINY_PNG_BYTES, content_type="image/png"),
+            original_filename="photo.png",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/png",
+            size=len(TINY_PNG_BYTES),
+        )
+        thumbnail_url = reverse("protected_media_thumbnail", kwargs={"media_id": media.id})
+
+        self.client.login(username="other", password="secret12345")
+        response = self.client.get(thumbnail_url)
+        self.assertEqual(response.status_code, 404)
+
+        self.client.logout()
+        self.login()
+        response = self.client.get(thumbnail_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/webp")
         response.close()

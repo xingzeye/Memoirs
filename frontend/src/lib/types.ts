@@ -1,4 +1,4 @@
-export type AppPage = "auth" | "archive" | "detail" | "editor" | "mobile-upload";
+export type AppPage = "auth" | "archive" | "detail" | "editor" | "media-gallery" | "mobile-upload";
 
 export type AppRoutes = {
   session?: string;
@@ -9,6 +9,7 @@ export type AppRoutes = {
   mobileUploadSessions?: string;
   memoirList?: string;
   memoirCreate?: string;
+  mediaGallery?: string;
   loginPage?: string;
   registerPage?: string;
 };
@@ -28,6 +29,8 @@ export type MediaItem = {
   id: number;
   url: string;
   absoluteUrl: string;
+  thumbnailUrl?: string;
+  downloadUrl: string;
   type: "image" | "video";
   name: string;
   mimeType: string;

@@ -31,15 +31,18 @@
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。
 - 支持回忆列表中的图片/视频预览弹层。
+- 支持 `/memoirs/media/` 全站相册页，集中查看当前账号全部照片和视频，媒体格子不显示文字描述。
+- 媒体预览弹层提供下载原图/原视频按钮。
 - 回忆库首页采用左侧深墨绿档案导航、顶部搜索筛选和紧凑时间线列表；统计区显示回忆、照片和视频数量。
 - 回忆库侧栏是可交互的客户端视图切换：地点、心情、信笺和媒体会筛选当前列表，回收站显示空态；时间排序可切换升降序，视图按钮可切换列表/媒体密度。
 - 时间线视图只显示填写了 `memoryDate` 的回忆；未写日期的回忆保留在 `记忆中的TA` 全部列表中。
 - 时间线行只渲染真实存在的媒体缩略图；没有媒体或媒体数量不足时不显示空占位框。
 - 时间线行点击后进入独立回忆详情页，详情页展示完整正文和全部照片/视频。
+- 图片缩略图通过受保护 WebP 缓存按需生成；视频缩略图在接近视口时才读取元数据，并通过 `Range` 响应改善移动端首帧加载。
 - 用户可见界面由 React/Vite 接管，覆盖登录/注册、回忆库、编辑器和手机上传页面。
 - Django Template 负责输出 React 挂载壳与初始 JSON 上下文，后续交互通过 Django JSON API 完成。
 - 支持 Django Admin 后台管理回忆和媒体。
-- 媒体文件通过受保护视图访问，不直接公开 `media/` 目录。
+- 媒体文件通过受保护视图访问，不直接公开 `media/` 目录；原文件下载走 `?download=1` 私有响应。
 
 ### 1.3 技术栈
 
@@ -178,7 +181,7 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 | `templates/memories/memoir_detail.html` | 回忆详情标题壳 |
 | `templates/memories/memoir_form.html` | 新增/编辑标题壳 |
 | `templates/memories/mobile_upload.html` | 手机上传标题壳 |
-| `frontend/src/components/` | 登录/注册、回忆库、详情页、编辑器、手机上传和媒体预览组件 |
+| `frontend/src/components/` | 登录/注册、回忆库、全站相册、详情页、编辑器、手机上传和媒体预览组件 |
 | `frontend/src/lib/` | 初始上下文、CSRF、fetch API 和共享类型 |
 | `frontend/src/styles/app.css` | 高端私人纪念册视觉系统源码 |
 | `static/frontend/app.js` / `app.css` | Django 实际引用的前端产物 |
@@ -380,7 +383,9 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 /memoirs/<uuid>/
 ```
 
-详情页由 `memoir_detail` 视图传入单条 `Memoir` 的序列化数据，React 渲染完整标题、日期、地点、心情、普通文本正文和全部照片/视频。媒体缩略图可以继续打开预览弹层，右侧整理区域提供编辑入口。
+详情页由 `memoir_detail` 视图传入单条 `Memoir` 的序列化数据，React 渲染完整标题、日期、地点、心情、普通文本正文和全部照片/视频。媒体缩略图不显示文件名文字，点击后打开预览弹层，右侧整理区域提供编辑入口。
+
+全站相册页由 `media_gallery` 视图传入当前账号全部 `MemoirMedia`，React 渲染 `/memoirs/media/`。相册格子只展示图片/视频本身和必要的视频播放图标，不展示标题、正文或文件名描述。
 
 ### 2.7 新增/编辑回忆页
 
@@ -707,6 +712,7 @@ admin.site.index_title = "后台管理"
 | --- | --- | --- | --- | --- |
 | `/` | `memoir_list` | `memoir_list` | GET | 回忆列表首页 |
 | `/memoirs/` | `memoir_list_alt` | `memoir_list` | GET | 回忆列表备用路径 |
+| `/memoirs/media/` | `media_gallery` | `media_gallery` | GET | 当前账号全站媒体相册 |
 | `/memoirs/new/` | `memoir_create` | `memoir_create` | GET/POST | 新增回忆 |
 | `/memoirs/<uuid:pk>/` | `memoir_detail` | `memoir_detail` | GET | 回忆详情 |
 | `/memoirs/<uuid:pk>/edit/` | `memoir_update` | `memoir_update` | GET/POST | 编辑回忆 |
@@ -714,7 +720,8 @@ admin.site.index_title = "后台管理"
 | `/mobile-upload/<str:token>/` | `mobile_upload` | `mobile_upload` | GET/POST | 手机端限时上传页 |
 | `/mobile-upload/<str:token>/status/` | `mobile_upload_status` | `mobile_upload_status` | GET | 电脑端轮询手机上传状态 |
 | `/mobile-upload/<str:token>/items/<int:item_id>/preview/` | `mobile_upload_item_preview` | `mobile_upload_item_preview` | GET | 手机上传临时/已入库文件预览 |
-| `/protected-media/<path:file_path>` | `protected_media` | `protected_media` | GET | 受保护媒体读取 |
+| `/protected-media/<path:file_path>` | `protected_media` | `protected_media` | GET | 受保护媒体读取；`?download=1` 下载原文件 |
+| `/protected-media-thumbnails/<int:media_id>/` | `protected_media_thumbnail` | `protected_media_thumbnail` | GET | 受保护图片 WebP 缩略图 |
 
 除了登录、注册和后台外，核心回忆页面均要求登录。
 
@@ -993,8 +1000,20 @@ target.relative_to(media_root)
 返回：
 
 ```python
-FileResponse(target.open("rb"), content_type=content_type)
+file_response_with_range(request, target, content_type, download_name, as_attachment)
 ```
+
+当前实现会为媒体响应添加私有缓存头和 `Accept-Ranges: bytes`。当浏览器发送单段 `Range` 请求时返回 `206 Partial Content` 和 `Content-Range`，非法范围返回 `416`；当 URL 带 `?download=1` 时使用原始文件名作为附件下载。
+
+#### 3.7.10 私有图片缩略图视图 `protected_media_thumbnail`
+
+装饰器：
+
+```python
+@login_required
+```
+
+访问规则与 `protected_media` 一致：owner 或 staff 可访问，其他用户返回 404。图片缩略图按需生成到 `MEDIA_ROOT/.thumbnails/`，格式为 WebP，生成失败时回退读取原图，保证页面仍能显示。
 
 ### 3.8 后台管理
 
@@ -1750,6 +1769,9 @@ memories/tests.py
 - 编辑回忆时修改字段、删除旧媒体、追加新媒体。
 - 删除回忆时清理媒体文件。
 - 受保护媒体只允许 owner 或 staff 访问。
+- 全站相册只返回当前用户媒体。
+- 受保护媒体支持原文件下载、合法 Range 返回 206、非法 Range 返回 416。
+- 受保护图片缩略图接口延续 owner/staff 权限控制。
 
 测试媒体目录：
 

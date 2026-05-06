@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { Download, X } from "lucide-react";
 import type { MediaItem } from "../lib/types";
 
 type MediaPreviewModalProps = {
@@ -12,15 +12,20 @@ export function MediaPreviewModal({ media, onClose }: MediaPreviewModalProps) {
   return (
     <div className="preview-layer" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <section className="preview-frame" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="icon-button close-button" type="button" aria-label="关闭预览" onClick={onClose}>
-          <X size={18} />
-        </button>
+        <div className="preview-actions">
+          <a className="preview-download-button" href={media.downloadUrl || media.url} download aria-label={media.type === "video" ? "下载原视频" : "下载原图"}>
+            <Download size={16} />
+            <span>{media.type === "video" ? "下载原视频" : "下载原图"}</span>
+          </a>
+          <button className="icon-button close-button" type="button" aria-label="关闭预览" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
         {media.type === "video" ? (
-          <video src={media.url} controls autoPlay />
+          <video src={media.url} controls autoPlay playsInline />
         ) : (
           <img src={media.url} alt={media.name} />
         )}
-        <p>{media.name}</p>
       </section>
     </div>
   );
