@@ -35,7 +35,7 @@ export async function apiJson<T>(
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = (await response.json()) as T;
+  const data = await readResponsePayload<T>(response);
   if (!response.ok) {
     throw data;
   }
@@ -55,7 +55,9 @@ async function readResponsePayload<T>(response: Response): Promise<T> {
         ? "上传失败：文件太大，超过服务器允许的上传大小。"
         : response.status === 400
           ? "上传失败：文件可能超过服务器允许大小，或请求被平台拦截。建议压缩视频后再试。"
-          : text.trim() || "请求失败，请稍后再试。";
+          : response.status >= 500
+            ? "上传失败：服务器处理视频时出错。建议先压缩视频，或稍后再试。"
+            : text.trim() || "请求失败，请稍后再试。";
     throw { errors: { __all__: [message] }, status: response.status };
   }
 

@@ -15,11 +15,11 @@ import {
   Search,
   Settings,
   Trash2,
-  Video,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { apiJson } from "../lib/api";
 import type { AppSession, MediaItem, Memoir } from "../lib/types";
+import { MediaThumbnail } from "./MediaThumbnail";
 import { MediaPreviewModal } from "./MediaPreviewModal";
 
 type ArchiveStats = {
@@ -139,7 +139,7 @@ function emptyCopy(section: SidebarSection) {
   if (section === "地点") return { title: "还没有地点记录", body: "给回忆补上地点后，这里会更像一份旧时光地图。" };
   if (section === "心情") return { title: "还没有心情标签", body: "写下心情后，可以在这里快速看见那些时刻的颜色。" };
   if (section === "信笺") return { title: "还没有信笺正文", body: "有正文的回忆会在这里集中呈现。" };
-  if (section === "媒体") return { title: "还没有媒体", body: "上传照片或视频后，这里会成为你的影像档案。" };
+    if (section === "媒体") return { title: "还没有媒体", body: "上传照片或视频后，这里会成为你的影像档案。" };
   if (section === "回收站") return { title: "回收站暂无内容", body: "当前没有可显示的已删除记录。" };
   return { title: "还没有回忆", body: "先新增一段吧，把照片、地点和那天的心情慢慢收好。" };
 }
@@ -206,6 +206,10 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
     if (section === "地点") {
       searchInputRef.current?.focus();
       return;
+    }
+
+    if (section === "媒体") {
+      window.location.assign(session.routes.mediaGallery || "/memoirs/media/");
     }
   }
 
@@ -393,8 +397,7 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
                           }}
                           aria-label={`预览 ${media.name}`}
                         >
-                          {media.type === "video" ? <video src={media.url} muted playsInline preload="metadata" /> : <img src={media.url} alt={media.name} loading="lazy" decoding="async" />}
-                          {media.type === "video" ? <Video size={16} /> : null}
+                          <MediaThumbnail media={media} />
                         </button>
                       ))}
                     </div>

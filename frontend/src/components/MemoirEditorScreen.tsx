@@ -4,6 +4,7 @@ import { apiForm, formatBytes } from "../lib/api";
 import type { AppSession, FormErrors, MediaItem, MobileUploadSession } from "../lib/types";
 import { Brand } from "./Brand";
 import { FilePreviewList, type LocalFilePreview } from "./FilePreviewList";
+import { MediaThumbnail } from "./MediaThumbnail";
 
 type EditorPayload = {
   mode?: "create" | "edit";
@@ -193,7 +194,7 @@ export function MemoirEditorScreen({ session, payload, onLogout }: MemoirEditorS
               <div className="existing-media-grid">
                 {existingMedia.map((media) => (
                   <button className={deleteMedia.has(media.id) ? "marked-delete" : ""} key={media.id} type="button" onClick={() => toggleDelete(media.id)}>
-                    {media.type === "video" ? <video src={media.url} muted preload="metadata" /> : <img src={media.url} alt={media.name} loading="lazy" />}
+                    <MediaThumbnail media={media} />
                     <span>
                       <Trash2 size={14} />
                       {deleteMedia.has(media.id) ? "将删除" : "保留"}

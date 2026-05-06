@@ -6,6 +6,7 @@ from . import views
 urlpatterns = [
     path("", views.memoir_list, name="memoir_list"),
     path("memoirs/", views.memoir_list, name="memoir_list_alt"),
+    path("memoirs/media/", views.media_gallery, name="media_gallery"),
     path("memoirs/new/", views.memoir_create, name="memoir_create"),
     path("memoirs/<uuid:pk>/", views.memoir_detail, name="memoir_detail"),
     path("memoirs/<uuid:pk>/edit/", views.memoir_update, name="memoir_update"),
@@ -18,6 +19,7 @@ urlpatterns = [
         name="mobile_upload_item_preview",
     ),
     path("protected-media/<path:file_path>", views.protected_media, name="protected_media"),
+    path("protected-media-thumbnails/<int:media_id>/", views.protected_media_thumbnail, name="protected_media_thumbnail"),
     path("api/session/", views.api_session, name="api_session"),
     path("api/auth/login/", views.api_login, name="api_login"),
     path("api/auth/register/", views.api_register, name="api_register"),
