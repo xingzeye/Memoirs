@@ -22,7 +22,7 @@
 - 用户注册、登录、退出。
 - 可通过环境变量关闭公开注册。
 - 登录用户只能管理自己的回忆。
-- 支持新增、编辑、删除回忆。
+- 支持新增、编辑、移入回收站、恢复和永久删除回忆。
 - 支持为回忆上传多张图片或多个视频。
 - 支持编辑回忆时追加媒体文件，或删除已有媒体文件。
 - 支持电脑端显示二维码，手机扫码后从手机相册上传照片或视频。
@@ -32,10 +32,10 @@
 - 支持按已有心情标签筛选。
 - 支持回忆列表中的图片/视频预览弹层。
 - 支持回忆列表首批图片缩略图在页面打开时通过 head preload 和 eager/high priority 提示主动加载。
-- 支持 `/memoirs/media/` 全站相册页，集中查看当前账号全部照片和视频，媒体格子不显示文字描述。
-- 媒体预览弹层提供下载原图/原视频按钮。
+- 支持 `/memoirs/media/` 全站相册页，集中查看当前账号全部照片和视频；相册支持照片/视频、年份、地点筛选，按所属回忆日期分组，媒体格子不显示文字描述。
+- 媒体预览弹层提供下载原图/原视频按钮；相册媒体还可从预览弹层跳回所属回忆详情页。
 - 回忆库首页采用左侧深墨绿档案导航、顶部搜索筛选和紧凑时间线列表；统计区显示回忆、照片和视频数量。
-- 回忆库侧栏是可交互的客户端视图切换：地点、心情、信笺和媒体会筛选当前列表，回收站显示空态；时间排序可切换升降序，视图按钮可切换列表/媒体密度。
+- 回忆库侧栏是可交互的客户端视图切换：地点、心情、信笺和媒体会筛选当前列表，回收站会加载已软删除回忆并提供恢复/永久删除；时间排序可切换升降序，视图按钮可切换列表/媒体密度。
 - 时间线视图只显示填写了 `memoryDate` 的回忆；未写日期的回忆保留在 `记忆中的TA` 全部列表中。
 - 时间线行只渲染真实存在的媒体缩略图；没有媒体或媒体数量不足时不显示空占位框。
 - 时间线行点击后进入独立回忆详情页，详情页展示完整正文和全部照片/视频。
@@ -233,9 +233,11 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 | `/api/auth/login/` | POST | 登录 |
 | `/api/auth/register/` | POST | 注册并登录 |
 | `/api/auth/logout/` | POST | 退出 |
-| `/api/memoirs/` | GET/POST | 列表/搜索/筛选，返回回忆、媒体、照片和视频统计，或创建回忆 |
+| `/api/memoirs/` | GET/POST | 列表/搜索/筛选，返回回忆、媒体、照片、视频和回收站统计，或创建回忆；`?deleted=1` 返回回收站 |
 | `/api/memoirs/<uuid>/` | GET/POST | 读取编辑数据，或保存修改 |
-| `/api/memoirs/<uuid>/delete/` | POST | 删除回忆 |
+| `/api/memoirs/<uuid>/delete/` | POST | 将回忆移入回收站 |
+| `/api/memoirs/<uuid>/restore/` | POST | 从回收站恢复回忆 |
+| `/api/memoirs/<uuid>/destroy/` | POST | 永久删除回忆并清理媒体文件 |
 | `/api/mobile-upload-sessions/` | POST | 生成新增/编辑页手机上传二维码会话 |
 
 手机上传 token 页面仍使用 `/mobile-upload/<token>/`。当请求头接受 JSON 时，它会返回 React 所需的上传状态和错误信息；普通表单 POST 仍可作为 fallback。
@@ -396,7 +398,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 
 详情页由 `memoir_detail` 视图传入单条 `Memoir` 的序列化数据，React 渲染完整标题、日期、地点、心情、普通文本正文和全部照片/视频。媒体缩略图不显示文件名文字，点击后打开预览弹层，右侧整理区域提供编辑入口。
 
-全站相册页由 `media_gallery` 视图传入当前账号全部 `MemoirMedia`，React 渲染 `/memoirs/media/`。相册格子只展示图片/视频本身和必要的视频播放图标，不展示标题、正文或文件名描述。
+全站相册页由 `media_gallery` 视图传入当前账号全部未进入回收站的 `MemoirMedia`，React 渲染 `/memoirs/media/`。相册支持 `type=image|video`、`year=YYYY`、`location=<地点>` 查询参数；年份和日期分组使用所属回忆的 `memory_date`，无日期媒体放入“未记录日期”分组。相册格子只展示图片/视频本身和必要的视频播放图标，不展示标题、正文或文件名描述；点击媒体打开预览弹层，弹层可下载原文件或跳回所属回忆详情页。
 
 ### 2.7 新增/编辑回忆页
 
@@ -725,11 +727,13 @@ admin.site.index_title = "后台管理"
 | --- | --- | --- | --- | --- |
 | `/` | `memoir_list` | `memoir_list` | GET | 回忆列表首页 |
 | `/memoirs/` | `memoir_list_alt` | `memoir_list` | GET | 回忆列表备用路径 |
-| `/memoirs/media/` | `media_gallery` | `media_gallery` | GET | 当前账号全站媒体相册 |
+| `/memoirs/media/` | `media_gallery` | `media_gallery` | GET | 当前账号全站媒体相册；支持 `type`、`year`、`location` 筛选 |
 | `/memoirs/new/` | `memoir_create` | `memoir_create` | GET/POST | 新增回忆 |
 | `/memoirs/<uuid:pk>/` | `memoir_detail` | `memoir_detail` | GET | 回忆详情 |
 | `/memoirs/<uuid:pk>/edit/` | `memoir_update` | `memoir_update` | GET/POST | 编辑回忆 |
-| `/memoirs/<uuid:pk>/delete/` | `memoir_delete` | `memoir_delete` | POST | 删除回忆 |
+| `/memoirs/<uuid:pk>/delete/` | `memoir_delete` | `memoir_delete` | POST | 将回忆移入回收站 |
+| `/memoirs/<uuid:pk>/restore/` | `memoir_restore` | `memoir_restore` | POST | 从回收站恢复回忆 |
+| `/memoirs/<uuid:pk>/destroy/` | `memoir_destroy` | `memoir_destroy` | POST | 永久删除回忆并清理媒体文件 |
 | `/mobile-upload/<str:token>/` | `mobile_upload` | `mobile_upload` | GET/POST | 手机端限时上传页 |
 | `/mobile-upload/<str:token>/status/` | `mobile_upload_status` | `mobile_upload_status` | GET | 电脑端轮询手机上传状态 |
 | `/mobile-upload/<str:token>/items/<int:item_id>/preview/` | `mobile_upload_item_preview` | `mobile_upload_item_preview` | GET | 手机上传临时/已入库文件预览 |
@@ -969,7 +973,7 @@ with transaction.atomic():
 
 该事务覆盖回忆字段更新、媒体记录删除和新增媒体记录创建。
 
-#### 3.7.8 删除视图 `memoir_delete`
+#### 3.7.8 回收站视图 `memoir_delete` / `memoir_restore` / `memoir_destroy`
 
 装饰器：
 
@@ -980,10 +984,11 @@ with transaction.atomic():
 
 说明：
 
-- 只能 POST 删除。
-- 只能删除当前用户自己的回忆。
-- 删除 `Memoir` 时会级联删除关联的 `MemoirMedia`。
-- 删除 `MemoirMedia` 时会触发 `post_delete` 信号，删除磁盘文件。
+- 只能通过 POST 修改回收站状态。
+- `memoir_delete` 只把当前用户自己的未删除回忆标记为 `deleted_at=timezone.now()`，媒体记录和磁盘文件都会保留。
+- 默认回忆列表、搜索、详情、编辑、全站相册、统计和编辑模式手机上传都排除已删除回忆。
+- `memoir_restore` 只允许恢复当前用户自己的已删除回忆，会把 `deleted_at` 清空。
+- `memoir_destroy` 只允许永久删除当前用户自己的已删除回忆；这时才会删除 `Memoir`，级联删除 `MemoirMedia`，并由 `post_delete` 信号清理磁盘文件。
 
 #### 3.7.9 私有媒体视图 `protected_media`
 
@@ -1042,13 +1047,13 @@ file_response_with_range(request, target, content_type, download_name, as_attach
 列表字段：
 
 ```python
-("title", "owner", "memory_date", "mood", "location", "media_count", "created_at")
+("title", "owner", "memory_date", "mood", "location", "media_count", "deleted_at", "created_at")
 ```
 
 筛选字段：
 
 ```python
-("mood", "memory_date", "created_at", "updated_at")
+("deleted_at", "mood", "memory_date", "created_at", "updated_at")
 ```
 
 搜索字段：
@@ -1234,6 +1239,7 @@ User 1 ─── N Memoir 1 ─── N MemoirMedia
 | `location` | `CharField(max_length=120)` | `blank=True` | 地点 |
 | `mood` | `CharField(max_length=60)` | `blank=True` | 心情标签 |
 | `owner` | `ForeignKey(settings.AUTH_USER_MODEL)` | `on_delete=CASCADE` | 所属用户 |
+| `deleted_at` | `DateTimeField` | `blank=True, null=True` | 回收站删除时间；为空表示正常显示 |
 | `created_at` | `DateTimeField` | `auto_now_add=True` | 创建时间 |
 | `updated_at` | `DateTimeField` | `auto_now=True` | 更新时间 |
 
@@ -1337,7 +1343,7 @@ E:\Memoirs\media\memoirs\<memoir_id>\<uuid>-<safe_filename>
 - 视图层已经先做了一次类型校验。
 - 模型层的判断是补充保护和后台保存时的兜底。
 
-### 4.9 级联删除与文件清理
+### 4.9 回收站、级联删除与文件清理
 
 模型关系：
 
@@ -1345,7 +1351,13 @@ E:\Memoirs\media\memoirs\<memoir_id>\<uuid>-<safe_filename>
 MemoirMedia.memoir = ForeignKey(Memoir, on_delete=models.CASCADE)
 ```
 
-删除回忆时：
+移入回收站时：
+
+1. `Memoir.deleted_at` 写入当前时间。
+2. `Memoir`、`MemoirMedia` 和磁盘文件都保留，用于后续恢复。
+3. 默认列表、详情、编辑、相册和统计不再包含该回忆。
+
+永久删除回忆时：
 
 1. Django 删除 `Memoir`。
 2. 级联删除关联的 `MemoirMedia`。
@@ -1781,9 +1793,9 @@ memories/tests.py
 - 列表页显示修改入口。
 - 列表页媒体输出 eager/high priority 图片属性、首批图片 preload 和视频预加载属性。
 - 编辑回忆时修改字段、删除旧媒体、追加新媒体。
-- 删除回忆时清理媒体文件。
+- 普通删除回忆时只进入回收站并保留媒体文件，永久删除时清理媒体文件。
 - 受保护媒体只允许 owner 或 staff 访问。
-- 全站相册只返回当前用户媒体。
+- 全站相册只返回当前用户且未进入回收站的媒体，并支持照片/视频、回忆年份、地点筛选。
 - 受保护媒体支持原文件下载、合法 Range 返回 206、非法 Range 返回 416。
 - 受保护图片缩略图接口延续 owner/staff 权限控制。
 

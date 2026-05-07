@@ -22,8 +22,8 @@ class MemoirMediaInline(admin.TabularInline):
 
 @admin.register(Memoir)
 class MemoirAdmin(admin.ModelAdmin):
-    list_display = ("title", "owner", "memory_date", "mood", "location", "media_count", "created_at")
-    list_filter = ("mood", "memory_date", "created_at", "updated_at")
+    list_display = ("title", "owner", "memory_date", "mood", "location", "media_count", "deleted_at", "created_at")
+    list_filter = ("deleted_at", "mood", "memory_date", "created_at", "updated_at")
     search_fields = ("title", "story", "location", "mood", "owner__username")
     readonly_fields = ("id", "created_at", "updated_at")
     inlines = (MemoirMediaInline,)

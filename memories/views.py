@@ -269,13 +269,13 @@ def render_app(
     )
 
 
-def serialize_media(request: HttpRequest, media: MemoirMedia) -> dict[str, object]:
+def serialize_media(request: HttpRequest, media: MemoirMedia, memoir: Memoir | None = None) -> dict[str, object]:
     thumbnail_url = (
         reverse("protected_media_thumbnail", kwargs={"media_id": media.id})
         if media.media_type == MemoirMedia.MediaType.IMAGE
         else ""
     )
-    return {
+    payload = {
         "id": media.id,
         "url": media.protected_url,
         "absoluteUrl": absolute_or_relative_url(request, media.protected_url),
@@ -287,6 +287,20 @@ def serialize_media(request: HttpRequest, media: MemoirMedia) -> dict[str, objec
         "size": media.size,
         "uploadedAt": timezone.localtime(media.uploaded_at).isoformat(),
     }
+    source_memoir = memoir or getattr(media, "memoir", None)
+    if source_memoir is not None:
+        payload.update(
+            {
+                "memoirId": str(source_memoir.pk),
+                "memoirTitle": source_memoir.title,
+                "memoirUrl": reverse("memoir_detail", kwargs={"pk": source_memoir.pk}),
+                "memoryDate": source_memoir.memory_date.isoformat() if source_memoir.memory_date else "",
+                "dateLabel": source_memoir.memory_date.strftime("%Y-%m-%d") if source_memoir.memory_date else "未记录日期",
+                "location": source_memoir.location,
+                "mood": source_memoir.mood,
+            }
+        )
+    return payload
 
 
 def serialize_memoir(request: HttpRequest, memoir: Memoir) -> dict[str, object]:
@@ -302,14 +316,20 @@ def serialize_memoir(request: HttpRequest, memoir: Memoir) -> dict[str, object]:
         "mood": memoir.mood,
         "createdAt": timezone.localtime(memoir.created_at).isoformat(),
         "updatedAt": timezone.localtime(memoir.updated_at).isoformat(),
+        "isDeleted": memoir.is_deleted,
+        "deletedAt": timezone.localtime(memoir.deleted_at).isoformat() if memoir.deleted_at else "",
         "mediaCount": len(media_items),
-        "media": [serialize_media(request, media) for media in media_items],
+        "media": [serialize_media(request, media, memoir) for media in media_items],
         "urls": {
             "detail": reverse("memoir_detail", kwargs={"pk": memoir.pk}),
             "edit": reverse("memoir_update", kwargs={"pk": memoir.pk}),
             "delete": reverse("memoir_delete", kwargs={"pk": memoir.pk}),
+            "restore": reverse("memoir_restore", kwargs={"pk": memoir.pk}),
+            "destroy": reverse("memoir_destroy", kwargs={"pk": memoir.pk}),
             "api": reverse("api_memoir_detail", kwargs={"pk": memoir.pk}),
             "apiDelete": reverse("api_memoir_delete", kwargs={"pk": memoir.pk}),
+            "apiRestore": reverse("api_memoir_restore", kwargs={"pk": memoir.pk}),
+            "apiDestroy": reverse("api_memoir_destroy", kwargs={"pk": memoir.pk}),
         },
     }
 
@@ -317,8 +337,12 @@ def serialize_memoir(request: HttpRequest, memoir: Memoir) -> dict[str, object]:
 def memoir_collection_payload(request: HttpRequest) -> dict[str, object]:
     query = request.GET.get("q", "").strip()
     mood = request.GET.get("mood", "").strip()
+    showing_deleted = request.GET.get("deleted") == "1"
 
-    memoirs = Memoir.objects.filter(owner=request.user).prefetch_related("media_items")
+    memoirs = Memoir.objects.filter(
+        owner=request.user,
+        deleted_at__isnull=not showing_deleted,
+    ).prefetch_related("media_items")
     if query:
         memoirs = memoirs.filter(
             Q(title__icontains=query)
@@ -330,21 +354,24 @@ def memoir_collection_payload(request: HttpRequest) -> dict[str, object]:
         memoirs = memoirs.filter(mood=mood)
 
     mood_choices = list(
-        Memoir.objects.filter(owner=request.user)
+        Memoir.objects.filter(owner=request.user, deleted_at__isnull=not showing_deleted)
         .exclude(mood="")
         .order_by("mood")
         .values_list("mood", flat=True)
         .distinct()
     )
-    all_memoirs = Memoir.objects.filter(owner=request.user)
-    all_media = MemoirMedia.objects.filter(memoir__owner=request.user)
+    active_memoirs = Memoir.objects.filter(owner=request.user, deleted_at__isnull=True)
+    deleted_memoirs = Memoir.objects.filter(owner=request.user, deleted_at__isnull=False)
+    all_media = MemoirMedia.objects.filter(memoir__owner=request.user, memoir__deleted_at__isnull=True)
     return {
         "memoirs": [serialize_memoir(request, memoir) for memoir in memoirs],
         "query": query,
         "activeMood": mood,
+        "showingDeleted": showing_deleted,
         "moodChoices": mood_choices,
         "stats": {
-            "memoirs": all_memoirs.count(),
+            "memoirs": active_memoirs.count(),
+            "deletedMemoirs": deleted_memoirs.count(),
             "media": all_media.count(),
             "photos": all_media.filter(media_type=MemoirMedia.MediaType.IMAGE).count(),
             "videos": all_media.filter(media_type=MemoirMedia.MediaType.VIDEO).count(),
@@ -359,20 +386,83 @@ def memoir_collection_payload(request: HttpRequest) -> dict[str, object]:
 
 
 def media_gallery_payload(request: HttpRequest) -> dict[str, object]:
-    media_items = (
-        MemoirMedia.objects.select_related("memoir")
-        .filter(memoir__owner=request.user)
-        .order_by("-uploaded_at", "-id")
+    media_type = request.GET.get("type", "").strip()
+    if media_type not in {MemoirMedia.MediaType.IMAGE, MemoirMedia.MediaType.VIDEO}:
+        media_type = ""
+    year = request.GET.get("year", "").strip()
+    if year and (not year.isdigit() or len(year) != 4):
+        year = ""
+    location = request.GET.get("location", "").strip()
+
+    base_media = MemoirMedia.objects.select_related("memoir").filter(
+        memoir__owner=request.user,
+        memoir__deleted_at__isnull=True,
     )
+    media_items = base_media
+    if media_type:
+        media_items = media_items.filter(media_type=media_type)
+    if year:
+        media_items = media_items.filter(memoir__memory_date__year=int(year))
+    if location:
+        media_items = media_items.filter(memoir__location=location)
+    media_items = media_items.order_by("-memoir__memory_date", "-uploaded_at", "-id")
+
+    year_choices = [
+        str(value)
+        for value in base_media.exclude(memoir__memory_date__isnull=True)
+        .order_by("-memoir__memory_date__year")
+        .values_list("memoir__memory_date__year", flat=True)
+        .distinct()
+    ]
+    location_choices = list(
+        base_media.exclude(memoir__location="")
+        .order_by("memoir__location")
+        .values_list("memoir__location", flat=True)
+        .distinct()
+    )
+    media_payload = [serialize_media(request, media) for media in media_items]
+    groups: list[dict[str, object]] = []
+    group_index: dict[str, dict[str, object]] = {}
+    for item in media_payload:
+        memory_date = str(item.get("memoryDate") or "")
+        group_key = memory_date or "undated"
+        if group_key not in group_index:
+            group = {
+                "key": group_key,
+                "label": str(item.get("dateLabel") or "未记录日期"),
+                "date": memory_date,
+                "count": 0,
+                "mediaIds": [],
+            }
+            group_index[group_key] = group
+            groups.append(group)
+        group = group_index[group_key]
+        group["count"] = int(group["count"]) + 1
+        group["mediaIds"].append(item["id"])
+
     return {
-        "media": [serialize_media(request, media) for media in media_items],
+        "media": media_payload,
+        "groups": groups,
+        "filters": {
+            "type": media_type,
+            "year": year,
+            "location": location,
+        },
+        "filterOptions": {
+            "years": year_choices,
+            "locations": location_choices,
+            "types": [
+                {"value": "", "label": "全部"},
+                {"value": MemoirMedia.MediaType.IMAGE, "label": "照片"},
+                {"value": MemoirMedia.MediaType.VIDEO, "label": "视频"},
+            ],
+        },
         "stats": {
             "media": media_items.count(),
             "photos": media_items.filter(media_type=MemoirMedia.MediaType.IMAGE).count(),
             "videos": media_items.filter(media_type=MemoirMedia.MediaType.VIDEO).count(),
         },
     }
-
 
 def mobile_upload_item_payload(item: MobileUploadItem) -> dict[str, object]:
     return {
@@ -703,6 +793,7 @@ def memoir_detail(request: HttpRequest, pk) -> HttpResponse:
         Memoir.objects.prefetch_related("media_items"),
         pk=pk,
         owner=request.user,
+        deleted_at__isnull=True,
     )
     return render_app(
         request,
@@ -747,6 +838,7 @@ def memoir_update(request: HttpRequest, pk) -> HttpResponse:
         Memoir.objects.prefetch_related("media_items"),
         pk=pk,
         owner=request.user,
+        deleted_at__isnull=True,
     )
     mobile_session = get_mobile_upload_session(request, MobileUploadSession.Mode.EDIT, memoir)
 
@@ -787,6 +879,8 @@ def mobile_upload(request: HttpRequest, token: str) -> HttpResponse:
         MobileUploadSession.objects.select_related("memoir", "owner").prefetch_related("items"),
         token=token,
     )
+    if session.mode == MobileUploadSession.Mode.EDIT and session.memoir and session.memoir.deleted_at:
+        raise Http404
     errors: list[str] = []
     uploaded_count = 0
 
@@ -877,9 +971,27 @@ def mobile_upload_item_preview(request: HttpRequest, token: str, item_id: int) -
 @login_required
 @require_POST
 def memoir_delete(request: HttpRequest, pk) -> HttpResponse:
-    memoir = get_object_or_404(Memoir, pk=pk, owner=request.user)
+    memoir = get_object_or_404(Memoir, pk=pk, owner=request.user, deleted_at__isnull=True)
+    memoir.soft_delete()
+    messages.success(request, "已将这段回忆移入回收站。")
+    return redirect("memoir_list")
+
+
+@login_required
+@require_POST
+def memoir_restore(request: HttpRequest, pk) -> HttpResponse:
+    memoir = get_object_or_404(Memoir, pk=pk, owner=request.user, deleted_at__isnull=False)
+    memoir.restore()
+    messages.success(request, "已恢复这段回忆。")
+    return redirect("memoir_list")
+
+
+@login_required
+@require_POST
+def memoir_destroy(request: HttpRequest, pk) -> HttpResponse:
+    memoir = get_object_or_404(Memoir, pk=pk, owner=request.user, deleted_at__isnull=False)
     memoir.delete()
-    messages.success(request, "已删除这段回忆。")
+    messages.success(request, "已永久删除这段回忆。")
     return redirect("memoir_list")
 
 
@@ -951,6 +1063,7 @@ def api_memoir_detail(request: HttpRequest, pk) -> JsonResponse:
         Memoir.objects.prefetch_related("media_items"),
         pk=pk,
         owner=request.user,
+        deleted_at__isnull=True,
     )
     if request.method == "GET":
         mobile_session = create_mobile_upload_session(request, MobileUploadSession.Mode.EDIT, memoir)
@@ -987,7 +1100,23 @@ def api_memoir_detail(request: HttpRequest, pk) -> JsonResponse:
 @login_required
 @require_POST
 def api_memoir_delete(request: HttpRequest, pk) -> JsonResponse:
-    memoir = get_object_or_404(Memoir, pk=pk, owner=request.user)
+    memoir = get_object_or_404(Memoir, pk=pk, owner=request.user, deleted_at__isnull=True)
+    memoir.soft_delete()
+    return JsonResponse({"ok": True, "redirect": reverse("memoir_list")})
+
+
+@login_required
+@require_POST
+def api_memoir_restore(request: HttpRequest, pk) -> JsonResponse:
+    memoir = get_object_or_404(Memoir.objects.prefetch_related("media_items"), pk=pk, owner=request.user, deleted_at__isnull=False)
+    memoir.restore()
+    return JsonResponse({"memoir": serialize_memoir(request, memoir), "redirect": reverse("memoir_list")})
+
+
+@login_required
+@require_POST
+def api_memoir_destroy(request: HttpRequest, pk) -> JsonResponse:
+    memoir = get_object_or_404(Memoir, pk=pk, owner=request.user, deleted_at__isnull=False)
     memoir.delete()
     return JsonResponse({"ok": True, "redirect": reverse("memoir_list")})
 
@@ -1005,7 +1134,7 @@ def api_mobile_upload_sessions(request: HttpRequest) -> JsonResponse:
     if mode == MobileUploadSession.Mode.EDIT:
         if not memoir_id:
             return JsonResponse({"errors": {"memoir_id": ["编辑模式需要回忆 ID。"]}}, status=400)
-        memoir = get_object_or_404(Memoir, pk=memoir_id, owner=request.user)
+        memoir = get_object_or_404(Memoir, pk=memoir_id, owner=request.user, deleted_at__isnull=True)
 
     session = create_mobile_upload_session(request, mode, memoir)
     return JsonResponse({"mobileUpload": mobile_upload_session_payload(request, session)}, status=201)

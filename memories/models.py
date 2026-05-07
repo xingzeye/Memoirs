@@ -42,6 +42,7 @@ class Memoir(models.Model):
     location = models.CharField("地点", max_length=120, blank=True)
     mood = models.CharField("心情标签", max_length=60, blank=True)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="上传用户", related_name="memoirs", on_delete=models.CASCADE)
+    deleted_at = models.DateTimeField("删除时间", blank=True, null=True)
     created_at = models.DateTimeField("创建时间", auto_now_add=True)
     updated_at = models.DateTimeField("更新时间", auto_now=True)
 
@@ -52,6 +53,20 @@ class Memoir(models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.deleted_at is not None
+
+    def soft_delete(self) -> None:
+        if self.deleted_at is None:
+            self.deleted_at = timezone.now()
+            self.save(update_fields=["deleted_at", "updated_at"])
+
+    def restore(self) -> None:
+        if self.deleted_at is not None:
+            self.deleted_at = None
+            self.save(update_fields=["deleted_at", "updated_at"])
 
 
 class MemoirMedia(models.Model):

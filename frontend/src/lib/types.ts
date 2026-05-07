@@ -36,6 +36,13 @@ export type MediaItem = {
   mimeType: string;
   size: number;
   uploadedAt?: string;
+  memoirId?: string;
+  memoirTitle?: string;
+  memoirUrl?: string;
+  memoryDate?: string;
+  dateLabel?: string;
+  location?: string;
+  mood?: string;
 };
 
 export type Memoir = {
@@ -49,14 +56,20 @@ export type Memoir = {
   mood: string;
   createdAt?: string;
   updatedAt?: string;
+  isDeleted?: boolean;
+  deletedAt?: string;
   mediaCount: number;
   media: MediaItem[];
   urls: {
     detail: string;
     edit: string;
     delete: string;
+    restore: string;
+    destroy: string;
     api: string;
     apiDelete: string;
+    apiRestore: string;
+    apiDestroy: string;
   };
 };
 
