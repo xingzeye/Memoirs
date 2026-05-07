@@ -11,6 +11,8 @@ urlpatterns = [
     path("memoirs/<uuid:pk>/", views.memoir_detail, name="memoir_detail"),
     path("memoirs/<uuid:pk>/edit/", views.memoir_update, name="memoir_update"),
     path("memoirs/<uuid:pk>/delete/", views.memoir_delete, name="memoir_delete"),
+    path("memoirs/<uuid:pk>/restore/", views.memoir_restore, name="memoir_restore"),
+    path("memoirs/<uuid:pk>/destroy/", views.memoir_destroy, name="memoir_destroy"),
     path("mobile-upload/<str:token>/", views.mobile_upload, name="mobile_upload"),
     path("mobile-upload/<str:token>/status/", views.mobile_upload_status, name="mobile_upload_status"),
     path(
@@ -27,5 +29,7 @@ urlpatterns = [
     path("api/memoirs/", views.api_memoirs, name="api_memoirs"),
     path("api/memoirs/<uuid:pk>/", views.api_memoir_detail, name="api_memoir_detail"),
     path("api/memoirs/<uuid:pk>/delete/", views.api_memoir_delete, name="api_memoir_delete"),
+    path("api/memoirs/<uuid:pk>/restore/", views.api_memoir_restore, name="api_memoir_restore"),
+    path("api/memoirs/<uuid:pk>/destroy/", views.api_memoir_destroy, name="api_memoir_destroy"),
     path("api/mobile-upload-sessions/", views.api_mobile_upload_sessions, name="api_mobile_upload_sessions"),
 ]
