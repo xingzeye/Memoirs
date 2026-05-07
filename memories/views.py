@@ -210,6 +210,16 @@ def memoir_list(request: HttpRequest) -> HttpResponse:
         )
     if mood:
         memoirs = memoirs.filter(mood=mood)
+    memoir_list_items = list(memoirs)
+    media_preload_items = []
+    for memoir in memoir_list_items:
+        for media in memoir.media_items.all():
+            if media.media_type == MemoirMedia.MediaType.IMAGE:
+                media_preload_items.append(media)
+                if len(media_preload_items) >= 8:
+                    break
+        if len(media_preload_items) >= 8:
+            break
 
     mood_choices = (
         Memoir.objects.filter(owner=request.user)
@@ -220,12 +230,14 @@ def memoir_list(request: HttpRequest) -> HttpResponse:
     )
     all_memoirs = Memoir.objects.filter(owner=request.user)
     context = {
-        "memoirs": memoirs,
+        "memoirs": memoir_list_items,
         "query": query,
         "active_mood": mood,
         "mood_choices": mood_choices,
         "memoir_count": all_memoirs.count(),
         "media_count": MemoirMedia.objects.filter(memoir__owner=request.user).count(),
+        "media_preload_urls": [media.protected_url for media in media_preload_items],
+        "high_priority_media_ids": {media.id for media in media_preload_items},
     }
     return render(request, "memories/memoir_list.html", context)
 

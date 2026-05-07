@@ -129,6 +129,24 @@ document.addEventListener("DOMContentLoaded", function () {
   var caption = backdrop.querySelector("[data-preview-caption]");
   var close = backdrop.querySelector("[data-preview-close]");
 
+  function warmUpMemoirMedia() {
+    document.querySelectorAll(".media-tile img").forEach(function (image) {
+      image.loading = "eager";
+      if (image.decode) {
+        image.decode().catch(function () {});
+      }
+    });
+
+    document.querySelectorAll(".media-tile video").forEach(function (video) {
+      video.preload = "auto";
+      video.muted = true;
+      video.playsInline = true;
+      try {
+        video.load();
+      } catch (error) {}
+    });
+  }
+
   function closePreview() {
     backdrop.classList.remove("open");
     dialog.innerHTML = "";
@@ -145,6 +163,8 @@ document.addEventListener("DOMContentLoaded", function () {
       if (type === "video") {
         element.controls = true;
         element.autoplay = true;
+        element.playsInline = true;
+        element.preload = "auto";
       } else {
         element.alt = name;
       }
@@ -152,6 +172,14 @@ document.addEventListener("DOMContentLoaded", function () {
       dialog.appendChild(element);
       caption.textContent = name;
       backdrop.classList.add("open");
+      if (type === "video" && element.play) {
+        var playback = element.play();
+        if (playback && playback.catch) {
+          playback.catch(function () {
+            element.autoplay = false;
+          });
+        }
+      }
     });
   });
 
@@ -162,4 +190,6 @@ document.addEventListener("DOMContentLoaded", function () {
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") closePreview();
   });
+
+  warmUpMemoirMedia();
 });

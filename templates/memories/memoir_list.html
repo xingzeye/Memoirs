@@ -2,6 +2,12 @@
 
 {% block title %}回忆库{% endblock %}
 
+{% block head_extra %}
+  {% for url in media_preload_urls %}
+    <link rel="preload" as="image" href="{{ url }}" fetchpriority="high">
+  {% endfor %}
+{% endblock %}
+
 {% block content %}
   <section class="hero archive-hero">
     <div>
@@ -85,10 +91,16 @@
                   data-media-name="{{ media.original_filename }}"
                 >
                   {% if media.media_type == "video" %}
-                    <video src="{{ media.protected_url }}" muted preload="metadata"></video>
+                    <video src="{{ media.protected_url }}" muted preload="auto" playsinline></video>
                     <span>播放</span>
                   {% else %}
-                    <img src="{{ media.protected_url }}" alt="{{ media.original_filename }}" loading="lazy">
+                    <img
+                      src="{{ media.protected_url }}"
+                      alt="{{ media.original_filename }}"
+                      loading="eager"
+                      decoding="async"
+                      fetchpriority="{% if media.id in high_priority_media_ids %}high{% else %}auto{% endif %}"
+                    >
                     <span>查看</span>
                   {% endif %}
                 </button>

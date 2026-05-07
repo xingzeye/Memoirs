@@ -207,6 +207,37 @@ class MemoirViewTests(TestCase):
         self.assertContains(response, reverse("memoir_update", kwargs={"pk": memoir.pk}))
         self.assertContains(response, "修改")
 
+    def test_list_media_uses_eager_preview_attributes(self):
+        self.login()
+        memoir = Memoir.objects.create(title="有媒体", owner=self.user)
+        image = MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("ready.jpg", b"fake image bytes", content_type="image/jpeg"),
+            original_filename="ready.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/jpeg",
+            size=16,
+        )
+        video = MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("ready.mp4", b"fake video bytes", content_type="video/mp4"),
+            original_filename="ready.mp4",
+            media_type=MemoirMedia.MediaType.VIDEO,
+            mime_type="video/mp4",
+            size=16,
+        )
+
+        response = self.client.get(reverse("memoir_list"))
+
+        self.assertContains(response, f'data-media-url="{image.protected_url}"')
+        self.assertContains(response, f'data-media-url="{video.protected_url}"')
+        self.assertContains(response, f'<link rel="preload" as="image" href="{image.protected_url}" fetchpriority="high">')
+        self.assertContains(response, 'loading="eager"')
+        self.assertContains(response, 'decoding="async"')
+        self.assertContains(response, 'fetchpriority="high"')
+        self.assertContains(response, 'preload="auto"')
+        self.assertContains(response, "playsinline")
+
     def test_update_memoir_changes_fields_and_removes_media(self):
         self.login()
         memoir = Memoir.objects.create(title="旧标题", story="旧正文", owner=self.user)

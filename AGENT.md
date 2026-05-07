@@ -9,6 +9,7 @@
 - 临时预览走 `/mobile-upload/<token>/items/<item_id>/preview/`，只允许 session 所属登录用户访问。
 - 过期临时上传可用 `python manage.py cleanup_mobile_uploads` 清理。
 - 依赖 `qrcode[pil]` 用于生成二维码，上传链接有效期由 `MOBILE_UPLOAD_SESSION_TTL_MINUTES` 控制，默认 30 分钟。
+- 回忆列表页会对当前列表前 8 张图片输出 head preload，并在图片标签上使用 eager/high priority 加载提示；媒体访问仍走受保护视图。
 - 修改代码时，同步更新 `PROJECT_GUIDE.md`、`README.md` 和 `AGENT.md`。
 
 ## 项目概览
@@ -147,6 +148,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。
 - 展示图片和视频缩略内容。
+- 打开列表页时会主动加载首批图片，减少点击查看前的等待。
 - 点击媒体可以打开前端预览弹层。
 
 ### 新增与编辑回忆
@@ -250,7 +252,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 静态资源：
 
 - `static/css/app.css`：整体视觉风格、响应式布局、登录页、卡片、表单、预览弹层等。
-- `static/js/app.js`：显示已选择文件名、图片/视频预览弹层、关闭预览。
+- `static/js/app.js`：显示已选择文件名、预热列表媒体、图片/视频预览弹层、关闭预览。
 
 界面语言是中文，视觉风格偏私密档案、柔和浅色背景、绿色强调色。
 
@@ -332,6 +334,7 @@ python manage.py test
 - 核心页面需要登录。
 - 创建回忆并上传媒体。
 - 列表页显示编辑入口。
+- 列表页验证首批图片 preload、图片 eager/high priority 和视频预加载属性。
 - 编辑回忆、替换字段、删除旧媒体并追加新媒体。
 - 删除回忆时清理媒体文件。
 - 受保护媒体只允许 owner 或 staff 访问。
