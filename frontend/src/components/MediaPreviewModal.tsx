@@ -22,7 +22,7 @@ export function MediaPreviewModal({ media, onClose }: MediaPreviewModalProps) {
           </button>
         </div>
         {media.type === "video" ? (
-          <video src={media.url} controls autoPlay playsInline />
+          <video src={media.url} controls autoPlay playsInline preload="auto" />
         ) : (
           <img src={media.url} alt={media.name} />
         )}

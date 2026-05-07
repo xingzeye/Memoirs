@@ -250,6 +250,7 @@ def render_app(
     page: str,
     payload: dict[str, object] | None = None,
     status: int = 200,
+    extra_context: dict[str, object] | None = None,
 ) -> HttpResponse:
     initial_data = {
         "page": page,
@@ -262,6 +263,7 @@ def render_app(
         {
             "app_page": page,
             "app_initial_data": initial_data,
+            **(extra_context or {}),
         },
         status=status,
     )
@@ -663,11 +665,23 @@ def promote_mobile_upload_items(memoir: Memoir, session: MobileUploadSession) ->
 @login_required
 @ensure_csrf_cookie
 def memoir_list(request: HttpRequest) -> HttpResponse:
+    payload = memoir_collection_payload(request)
+    media_preload_urls = []
+    for memoir in payload["memoirs"]:
+        for media in memoir["media"]:
+            if media["type"] != MemoirMedia.MediaType.IMAGE:
+                continue
+            media_preload_urls.append(media["thumbnailUrl"] or media["url"])
+            if len(media_preload_urls) >= 8:
+                break
+        if len(media_preload_urls) >= 8:
+            break
     return render_app(
         request,
         "memories/memoir_list.html",
         "archive",
-        memoir_collection_payload(request),
+        payload,
+        extra_context={"media_preload_urls": media_preload_urls},
     )
 
 

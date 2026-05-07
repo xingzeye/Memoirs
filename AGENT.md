@@ -33,6 +33,7 @@
 - 临时预览走 `/mobile-upload/<token>/items/<item_id>/preview/`，只允许 session 所属登录用户访问。
 - 过期临时上传可用 `python manage.py cleanup_mobile_uploads` 清理。
 - 依赖 `qrcode[pil]` 用于生成二维码，上传链接有效期由 `MOBILE_UPLOAD_SESSION_TTL_MINUTES` 控制，默认 30 分钟。
+- 回忆列表页会对当前列表前 8 张图片输出 head preload，并在图片标签上使用 eager/high priority 加载提示；媒体访问仍走受保护视图。
 - 修改代码时，同步更新 `PROJECT_GUIDE.md`、`README.md` 和 `AGENT.md`。
 
 ## 项目概览
@@ -177,6 +178,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - 使用左侧档案栏和紧凑时间线行展示日期、真实媒体缩略图、标题摘要、地点、心情、媒体数、编辑和删除操作；行主体点击进入详情页。
 - 侧栏地点/心情/信笺是客户端筛选视图；媒体入口跳转到全站相册页；时间排序切换升降序，视图按钮切换列表与媒体密度。
 - 展示图片和视频缩略内容。
+- 打开列表页时会主动加载首批图片，减少点击查看前的等待。
 - 点击媒体可以打开前端预览弹层。
 - 预览弹层不显示文件名正文，提供下载原图/原视频按钮。
 - 点击回忆行主体会打开 `/memoirs/<uuid>/` 详情页，集中展示完整正文和全部媒体。
@@ -287,6 +289,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - `frontend/src/styles/app.css`：React 前端设计系统源码。
 - `static/frontend/app.css`：当前 Django 引用的样式产物。
 - `static/frontend/app.js`：当前 Django 引用的脚本产物；有 npm 时应由 Vite 构建覆盖。
+- 回忆列表首批图片预加载由 `memories.views.memoir_list`、`templates/memories/memoir_list.html` 和 `frontend/src/components/MediaThumbnail.tsx` 配合完成。
 
 界面语言是中文，视觉风格偏高端私人纪念册、柔和浅色纸感背景、深墨绿与古金强调色；回忆库列表页是档案工作台，不是营销展示页。
 
@@ -381,6 +384,7 @@ conda install -n memoirs "nodejs>=22"
 - 核心页面需要登录。
 - 创建回忆并上传媒体。
 - 列表页显示编辑入口。
+- 列表页验证首批图片 preload、图片 eager/high priority 和视频预加载属性。
 - 编辑回忆、替换字段、删除旧媒体并追加新媒体。
 - 删除回忆时清理媒体文件。
 - 受保护媒体只允许 owner 或 staff 访问。

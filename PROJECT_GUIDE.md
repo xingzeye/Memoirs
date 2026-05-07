@@ -31,6 +31,7 @@
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。
 - 支持回忆列表中的图片/视频预览弹层。
+- 支持回忆列表首批图片缩略图在页面打开时通过 head preload 和 eager/high priority 提示主动加载。
 - 支持 `/memoirs/media/` 全站相册页，集中查看当前账号全部照片和视频，媒体格子不显示文字描述。
 - 媒体预览弹层提供下载原图/原视频按钮。
 - 回忆库首页采用左侧深墨绿档案导航、顶部搜索筛选和紧凑时间线列表；统计区显示回忆、照片和视频数量。
@@ -174,10 +175,10 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 
 | 文件 | 作用 |
 | --- | --- |
-| `templates/base.html` | React 挂载壳、初始 JSON、静态资源引用 |
+| `templates/base.html` | React 挂载壳、初始 JSON、静态资源引用和页面级 head 扩展位 |
 | `templates/registration/login.html` | 登录页标题壳 |
 | `templates/registration/register.html` | 注册页标题壳 |
-| `templates/memories/memoir_list.html` | 回忆库标题壳 |
+| `templates/memories/memoir_list.html` | 回忆库标题壳和首批图片 head preload |
 | `templates/memories/memoir_detail.html` | 回忆详情标题壳 |
 | `templates/memories/memoir_form.html` | 新增/编辑标题壳 |
 | `templates/memories/mobile_upload.html` | 手机上传标题壳 |
@@ -197,6 +198,7 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 - 加载静态资源标签 `{% load static %}`。
 - 设置 HTML 语言为 `zh-CN`。
 - 设置响应式视口。
+- 暴露 `{% block head_extra %}` 给业务页面追加 head 资源提示。
 - 引入样式文件：`static/frontend/app.css`。
 - 静态前端资源 URL 带版本参数，用于强制浏览器刷新最新 React/CSS。
 - 渲染 `#memoirs-root`。
@@ -335,6 +337,7 @@ ALLOW_PUBLIC_REGISTRATION = env_bool("ALLOW_PUBLIC_REGISTRATION", DEBUG)
 | `mood_choices` | 当前用户已有的非空心情标签 |
 | `memoir_count` | 当前用户回忆总数 |
 | `media_count` | 当前用户媒体文件总数 |
+| `media_preload_urls` | 当前列表前 8 张图片缩略图的受保护访问地址，用于 head preload |
 | `stats.photos` / `stats.videos` | React API 统计中的图片和视频数量 |
 
 页面结构：
@@ -346,6 +349,14 @@ ALLOW_PUBLIC_REGISTRATION = env_bool("ALLOW_PUBLIC_REGISTRATION", DEBUG)
 - 头像按钮打开账号浮层，退出需要在浮层或侧栏明确点击退出。
 - 空状态：没有回忆时展示新增入口。
 - 预览弹层：供 JavaScript 动态填充图片或视频。
+
+列表页会在 head 中为当前列表前 8 张图片输出：
+
+```html
+<link rel="preload" as="image" href="..." fetchpriority="high">
+```
+
+对应 React 图片缩略图使用 `loading="eager"`、`decoding="async"` 和 `fetchPriority`，让浏览器在页面打开时尽早请求图片。视频仅给出元数据预加载和内联播放提示，不强制整段下载。
 
 每条回忆行包含：
 
@@ -371,7 +382,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 | `data-media-type` | `image` 或 `video` |
 | `data-media-name` | 原始文件名，用作预览标题或图片 alt |
 
-这些属性现在由 React 的媒体预览组件读取，用来创建预览弹层内容；旧 `static/js/app.js` 不再作为主入口引用。
+这些属性现在由 React 的媒体预览组件读取，用来创建预览弹层内容；列表图片预热由 head preload 和 `MediaThumbnail` 的 eager/high priority 属性完成，旧 `static/js/app.js` 不再作为主入口引用。
 
 ### 2.6 回忆详情页
 
@@ -563,12 +574,14 @@ JS 通过以下属性找到预览区域：
 点击媒体缩略图后：
 
 1. 读取媒体 URL、类型、文件名。
-2. 如果类型是 `video`，创建 `<video>`。
+2. 如果类型是 `video`，创建带 `controls`、`autoplay`、`playsInline` 和 `preload` 的 `<video>`。
 3. 否则创建 `<img>`。
 4. 清空旧预览内容。
 5. 插入新预览元素。
 6. 更新标题。
 7. 给遮罩添加 `open` class。
+
+页面加载后，JS 还会把列表页图片保持为 eager 加载，并对视频调用轻量预热；如果视频自动播放被浏览器阻止，会保留控制条供用户手动播放。
 
 关闭方式：
 
@@ -1766,6 +1779,7 @@ memories/tests.py
 - 注册成功后自动登录。
 - 创建回忆并上传媒体。
 - 列表页显示修改入口。
+- 列表页媒体输出 eager/high priority 图片属性、首批图片 preload 和视频预加载属性。
 - 编辑回忆时修改字段、删除旧媒体、追加新媒体。
 - 删除回忆时清理媒体文件。
 - 受保护媒体只允许 owner 或 staff 访问。

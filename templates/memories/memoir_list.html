@@ -1,3 +1,9 @@
 {% extends "base.html" %}
 
 {% block title %}记忆中的TA · 忆往昔{% endblock %}
+
+{% block head_extra %}
+  {% for url in media_preload_urls %}
+    <link rel="preload" as="image" href="{{ url }}" fetchpriority="high">
+  {% endfor %}
+{% endblock %}

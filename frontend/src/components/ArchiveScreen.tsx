@@ -262,6 +262,17 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
       return sortOrder === "desc" ? -diff : diff;
     });
   }, [activeSection, memoirs, sortOrder]);
+  const priorityImageIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const memoir of memoirs) {
+      for (const media of memoir.media) {
+        if (media.type !== "image") continue;
+        ids.add(media.id);
+        if (ids.size >= 8) return ids;
+      }
+    }
+    return ids;
+  }, [memoirs]);
 
   const emptyState = emptyCopy(activeSection);
   const userInitial = session.user?.username ? session.user.username.slice(0, 1).toUpperCase() : "TA";
@@ -397,7 +408,7 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
                           }}
                           aria-label={`预览 ${media.name}`}
                         >
-                          <MediaThumbnail media={media} />
+                          <MediaThumbnail media={media} eager={media.type === "image" && priorityImageIds.has(media.id)} />
                         </button>
                       ))}
                     </div>

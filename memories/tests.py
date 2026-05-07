@@ -275,6 +275,35 @@ class MemoirViewTests(TestCase):
         self.assertContains(response, "owner.jpg")
         self.assertNotContains(response, "other.jpg")
 
+    def test_list_preloads_first_image_thumbnail(self):
+        self.login()
+        memoir = Memoir.objects.create(title="有媒体", owner=self.user)
+        image = MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("ready.jpg", TINY_PNG_BYTES, content_type="image/png"),
+            original_filename="ready.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/png",
+            size=len(TINY_PNG_BYTES),
+        )
+        video = MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("ready.mp4", b"fake video bytes", content_type="video/mp4"),
+            original_filename="ready.mp4",
+            media_type=MemoirMedia.MediaType.VIDEO,
+            mime_type="video/mp4",
+            size=16,
+        )
+
+        response = self.client.get(reverse("memoir_list"))
+        thumbnail_url = reverse("protected_media_thumbnail", kwargs={"media_id": image.id})
+
+        self.assertContains(response, f'<link rel="preload" as="image" href="{thumbnail_url}" fetchpriority="high">')
+        self.assertContains(response, '"page": "archive"')
+        self.assertContains(response, "ready.jpg")
+        self.assertContains(response, "ready.mp4")
+        self.assertNotContains(response, f'<link rel="preload" as="image" href="{video.protected_url}"')
+
     def test_update_memoir_changes_fields_and_removes_media(self):
         self.login()
         memoir = Memoir.objects.create(title="旧标题", story="旧正文", owner=self.user)

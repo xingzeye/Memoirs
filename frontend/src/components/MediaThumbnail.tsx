@@ -43,5 +43,5 @@ export function MediaThumbnail({ media, eager = false }: MediaThumbnailProps) {
     );
   }
 
-  return <img src={media.thumbnailUrl || media.url} alt={media.name} loading={eager ? "eager" : "lazy"} decoding="async" />;
+  return <img src={media.thumbnailUrl || media.url} alt={media.name} loading={eager ? "eager" : "lazy"} decoding="async" fetchPriority={eager ? "high" : "auto"} />;
 }
