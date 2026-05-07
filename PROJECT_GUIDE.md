@@ -27,12 +27,23 @@
 - 支持编辑回忆时追加媒体文件，或删除已有媒体文件。
 - 支持电脑端显示二维码，手机扫码后从手机相册上传照片或视频。
 - 支持电脑直接选择文件和手机上传文件的缩略预览。
+- 前端从会话上下文读取上传大小限制，选择文件时会拦截超过上限的照片/视频；提交时遇到非 JSON 的 400/413 上传失败响应也会显示明确中文提示。
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。
 - 支持回忆列表中的图片/视频预览弹层。
-- 支持回忆列表首批图片在页面打开时通过 head preload 和 eager/high priority 提示主动加载。
+- 支持回忆列表首批图片缩略图在页面打开时通过 head preload 和 eager/high priority 提示主动加载。
+- 支持 `/memoirs/media/` 全站相册页，集中查看当前账号全部照片和视频，媒体格子不显示文字描述。
+- 媒体预览弹层提供下载原图/原视频按钮。
+- 回忆库首页采用左侧深墨绿档案导航、顶部搜索筛选和紧凑时间线列表；统计区显示回忆、照片和视频数量。
+- 回忆库侧栏是可交互的客户端视图切换：地点、心情、信笺和媒体会筛选当前列表，回收站显示空态；时间排序可切换升降序，视图按钮可切换列表/媒体密度。
+- 时间线视图只显示填写了 `memoryDate` 的回忆；未写日期的回忆保留在 `记忆中的TA` 全部列表中。
+- 时间线行只渲染真实存在的媒体缩略图；没有媒体或媒体数量不足时不显示空占位框。
+- 时间线行点击后进入独立回忆详情页，详情页展示完整正文和全部照片/视频。
+- 图片缩略图通过受保护 WebP 缓存按需生成；视频缩略图在接近视口时才读取元数据，并通过 `Range` 响应改善移动端首帧加载。
+- 用户可见界面由 React/Vite 接管，覆盖登录/注册、回忆库、编辑器和手机上传页面。
+- Django Template 负责输出 React 挂载壳与初始 JSON 上下文，后续交互通过 Django JSON API 完成。
 - 支持 Django Admin 后台管理回忆和媒体。
-- 媒体文件通过受保护视图访问，不直接公开 `media/` 目录。
+- 媒体文件通过受保护视图访问，不直接公开 `media/` 目录；原文件下载走 `?download=1` 私有响应。
 
 ### 1.3 技术栈
 
@@ -40,9 +51,10 @@
 | --- | --- |
 | 语言 | Python 3.12 |
 | Web 框架 | Django 5.x |
-| 前端渲染 | Django Template |
-| 样式 | 原生 CSS，文件为 `static/css/app.css` |
-| 交互 | 原生 JavaScript，文件为 `static/js/app.js` |
+| 前端渲染 | React 18 + Vite + TypeScript |
+| 模板职责 | Django Template 作为 React 挂载壳 |
+| 样式 | 原生 CSS 设计系统，源码为 `frontend/src/styles/app.css`，产物为 `static/frontend/app.css` |
+| 交互 | React 组件 + Django JSON API；`static/frontend/app.js` 保留临时 fallback |
 | 表单 | Django Forms |
 | 认证 | Django 内置 Auth |
 | 本地数据库 | SQLite |
@@ -68,7 +80,7 @@ E:\Memoirs
 │   └── wsgi.py
 ├── memories/                        # 核心应用
 │   ├── models.py                    # Memoir 与 MemoirMedia 模型
-│   ├── views.py                     # 页面视图、上传、删除、私有媒体读取
+│   ├── views.py                     # 页面视图、详情、上传、删除、私有媒体读取
 │   ├── forms.py                     # 注册表单与回忆表单
 │   ├── urls.py                      # 应用路由
 │   ├── admin.py                     # Admin 后台配置
@@ -80,16 +92,23 @@ E:\Memoirs
 │       └── commands/
 │           └── ensure_superuser.py  # 部署时自动创建超级用户
 ├── templates/
-│   ├── base.html                    # 登录后页面基础布局
+│   ├── base.html                    # React 挂载壳、静态资源引用、初始 JSON 上下文
 │   ├── registration/
-│   │   ├── login.html               # 登录页
-│   │   └── register.html            # 注册页
+│   │   ├── login.html               # 登录页标题壳
+│   │   └── register.html            # 注册页标题壳
 │   └── memories/
-│       ├── memoir_list.html         # 回忆列表页
-│       └── memoir_form.html         # 新增/编辑回忆页
+│       ├── memoir_list.html         # 回忆列表页标题壳
+│       ├── memoir_detail.html       # 回忆详情页标题壳
+│       ├── memoir_form.html         # 新增/编辑回忆页标题壳
+│       └── mobile_upload.html       # 手机上传页标题壳
+├── frontend/                        # React/Vite 前端源码
+│   ├── package.json                 # 前端依赖与构建脚本
+│   ├── vite.config.ts               # 输出到 static/frontend，且不清空目录
+│   └── src/                         # React 组件、API helper、CSS 源码
 ├── static/
-│   ├── css/app.css                  # 应用样式
-│   └── js/app.js                    # 文件选择提示与媒体预览弹层
+│   ├── frontend/app.css             # Django 页面引用的前端样式
+│   ├── frontend/app.js              # Django 页面引用的前端脚本
+│   └── images/                      # 登录背景与纸纹理等项目内视觉资产
 ├── media/                           # 本地上传文件目录，已被 .gitignore 忽略
 ├── .test-media/                     # 测试媒体目录，已被 .gitignore 忽略
 ├── .env.example                     # 环境变量示例
@@ -139,25 +158,40 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 
 ### 2.1 前端架构
 
-项目没有使用 React、Vue、Vite、Webpack 或 Django REST Framework。当前前端由 Django Template、原生 CSS 和少量原生 JavaScript 组成。
+用户可见前端已切换为 React 18 + Vite + TypeScript。Django Template 不再直接绘制完整页面，而是输出统一挂载壳、初始 JSON 上下文和静态资源引用。
+
+当前前端边界：
+
+- `#memoirs-root` 是 React 挂载节点。
+- `memoirs-initial-data` 注入当前页面、登录态、CSRF token、路由和首屏数据。
+- `session.uploadLimits` 注入当前上传大小限制，供前端在用户选择视频或照片时提前给出明确提示。
+- `static/frontend/app.css` 与 `static/frontend/app.js` 是 Django 实际引用的前端产物。
+- `templates/base.html` 引用前端产物时带固定版本参数；重做用户界面后应更新该参数，避免浏览器继续缓存旧 bundle。
+- `frontend/src/` 是 React/Vite 源码。
+- 由于本机环境可能没有 `npm`，仓库保留了轻量 `static/frontend/app.js` fallback；正式前端更新应运行 Vite 构建覆盖它。
+- 移动端性能优先使用 `static/images/*.webp` 背景图，PNG 只作为 CSS fallback；时间线和详情页视频缩略图使用 `preload="metadata"` 与 `playsInline`，只取首帧元数据用于预览，不提前完整加载视频。
 
 主要前端文件：
 
 | 文件 | 作用 |
 | --- | --- |
-| `templates/base.html` | 登录后页面的基础布局、导航、消息提示、静态资源引用和页面级 head 扩展位 |
-| `templates/registration/login.html` | 登录页 |
-| `templates/registration/register.html` | 注册页 |
-| `templates/memories/memoir_list.html` | 回忆列表、搜索、标签筛选、媒体预览入口 |
-| `templates/memories/memoir_form.html` | 新增和编辑回忆表单 |
-| `static/css/app.css` | 全局视觉、布局、响应式、表单、卡片、登录页和预览弹层样式 |
-| `static/js/app.js` | 文件选择列表提示、列表媒体预热、图片/视频预览弹层 |
+| `templates/base.html` | React 挂载壳、初始 JSON、静态资源引用和页面级 head 扩展位 |
+| `templates/registration/login.html` | 登录页标题壳 |
+| `templates/registration/register.html` | 注册页标题壳 |
+| `templates/memories/memoir_list.html` | 回忆库标题壳和首批图片 head preload |
+| `templates/memories/memoir_detail.html` | 回忆详情标题壳 |
+| `templates/memories/memoir_form.html` | 新增/编辑标题壳 |
+| `templates/memories/mobile_upload.html` | 手机上传标题壳 |
+| `frontend/src/components/` | 登录/注册、回忆库、全站相册、详情页、编辑器、手机上传和媒体预览组件 |
+| `frontend/src/lib/` | 初始上下文、CSRF、fetch API 和共享类型 |
+| `frontend/src/styles/app.css` | 高端私人纪念册视觉系统源码 |
+| `static/frontend/app.js` / `app.css` | Django 实际引用的前端产物 |
 
-前端页面均由后端视图直接渲染。用户提交表单后，服务端处理数据并重定向到列表页。
+页面初始数据由后端视图注入；后续搜索、筛选、保存、删除、上传等交互优先通过 JSON API 完成。旧的 POST 页面视图仍保留为非 JS fallback 和测试兼容入口。
 
 ### 2.2 基础布局 `base.html`
 
-`templates/base.html` 是登录后页面的基础模板。
+`templates/base.html` 是 React 前端的统一挂载模板。
 
 它负责：
 
@@ -165,18 +199,48 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 - 设置 HTML 语言为 `zh-CN`。
 - 设置响应式视口。
 - 暴露 `{% block head_extra %}` 给业务页面追加 head 资源提示。
-- 引入样式文件：`static/css/app.css`。
-- 渲染顶部导航。
-- 渲染 Django messages 消息。
-- 暴露 `{% block content %}` 给业务页面填充。
-- 在页面底部引入脚本：`static/js/app.js`。
+- 引入样式文件：`static/frontend/app.css`。
+- 静态前端资源 URL 带版本参数，用于强制浏览器刷新最新 React/CSS。
+- 渲染 `#memoirs-root`。
+- 通过 `json_script` 写入 `app_initial_data`。
+- 在页面底部引入脚本：`static/frontend/app.js`。
 
-导航区域只在用户已登录时显示：
+导航区域、登录表单、回忆列表、编辑器和手机上传状态都由 React 根据初始 JSON 和 API 响应渲染。
 
-- `新增回忆`：跳转到 `memoir_create`。
-- `退出`：通过 POST 表单访问 `logout`。
+### 2.2.1 React 页面与视觉方向
 
-退出按钮使用 POST，并包含 CSRF Token，符合 Django 推荐做法。
+视觉方向固定为“纪念 TA 的高端私人回忆档案”：
+
+- 登录和注册页的图标输入框由 `.input-wrap` 统一承载焦点态，内部 `input` 不再重复渲染 focus 阴影，避免点击用户名/密码框时出现双层边框。
+- 回忆库时间线行点击后进入独立详情页，详情页展示完整普通文本正文和全部照片/视频。
+- 心情筛选栏只来自当前用户真实填写过的 `mood` 值；没有心情数据时只显示“全部”，不再展示默认兜底心情标签。
+- 新增/编辑回忆表单中，`mood` 前端输入使用常见心情下拉选项；正文 textarea 保持普通文本输入。
+- 新增/编辑回忆表单在移动端隐藏 `.qr-card` 二维码上传入口和 `.phone-status-card` 上传状态卡片；桌面端继续显示，用于从手机扫码上传媒体。
+- 页面文案使用“TA”“旧时光”“回忆”“私密保存”，不直接放大“前任”。
+- 主色为深墨绿，辅以暖白纸感、古金和石墨色；删除/危险动作使用柔和珊瑚色。
+- 回忆库页以左侧档案栏和时间线表格为主，不再使用营销型大 Hero 或泛卡片瀑布流。
+- 登录页使用项目内背景图 `static/images/memoir-login-scene.png`。
+- 全站纸感背景使用 `static/images/archive-paper-texture.png`。
+- 圆角保持 8px 以内，避免营销型 hero、装饰光球、大面积蓝紫渐变和外链背景图。
+
+### 2.2.2 JSON API
+
+新增 API 路由位于 `memories/urls.py`：
+
+| 路由 | 方法 | 作用 |
+| --- | --- | --- |
+| `/api/session/` | GET | 当前登录态、CSRF token、前端路由 |
+| `/api/auth/login/` | POST | 登录 |
+| `/api/auth/register/` | POST | 注册并登录 |
+| `/api/auth/logout/` | POST | 退出 |
+| `/api/memoirs/` | GET/POST | 列表/搜索/筛选，返回回忆、媒体、照片和视频统计，或创建回忆 |
+| `/api/memoirs/<uuid>/` | GET/POST | 读取编辑数据，或保存修改 |
+| `/api/memoirs/<uuid>/delete/` | POST | 删除回忆 |
+| `/api/mobile-upload-sessions/` | POST | 生成新增/编辑页手机上传二维码会话 |
+
+手机上传 token 页面仍使用 `/mobile-upload/<token>/`。当请求头接受 JSON 时，它会返回 React 所需的上传状态和错误信息；普通表单 POST 仍可作为 fallback。
+
+> 下面的页面小节保留业务流程说明；具体视觉和 DOM 已由 React 组件实现，不再由模板直接绘制完整页面。
 
 ### 2.3 登录页
 
@@ -199,7 +263,7 @@ django.contrib.auth.views.LoginView
 - 使用独立的 `{% block body %}`，不继承登录后页面导航。
 - 采用沉浸式背景图与登录卡片布局。
 - 展示品牌文案：`忆往昔`。
-- 登录页主标题文案：`回忆替TA陪我`。
+- 登录页主标题文案（React 登录态）：`回忆替TA陪我`。
 - 表单字段来自 Django 内置认证表单。
 - 提交后由 Django Auth 完成登录。
 - 如果登录失败，显示 `用户名或密码不正确。`。
@@ -273,14 +337,16 @@ ALLOW_PUBLIC_REGISTRATION = env_bool("ALLOW_PUBLIC_REGISTRATION", DEBUG)
 | `mood_choices` | 当前用户已有的非空心情标签 |
 | `memoir_count` | 当前用户回忆总数 |
 | `media_count` | 当前用户媒体文件总数 |
-| `media_preload_urls` | 当前列表前 8 张图片的受保护访问地址，用于 head preload |
-| `high_priority_media_ids` | 需要在图片标签上标记高优先级的媒体 ID |
+| `media_preload_urls` | 当前列表前 8 张图片缩略图的受保护访问地址，用于 head preload |
+| `stats.photos` / `stats.videos` | React API 统计中的图片和视频数量 |
 
 页面结构：
 
-- Hero 区域：展示标题 `记忆中的TA`、说明文案、回忆数量和媒体数量。
-- 工具栏：搜索输入框、心情标签筛选、搜索按钮。
-- 时间线区域：逐条展示回忆卡片。
+- 左侧档案栏：品牌、`记忆中的TA`、时间线、地点、心情、信笺、媒体、回收站、设置和退出入口。
+- 顶部工具栏：标题 `记忆中的TA`、回忆/照片/视频统计、搜索框、提醒头像和新增入口。
+- 筛选工具栏：心情标签筛选、时间排序和列表视图按钮。
+- 时间线区域：逐条展示紧凑档案行，不使用瀑布流或大卡片布局。
+- 头像按钮打开账号浮层，退出需要在浮层或侧栏明确点击退出。
 - 空状态：没有回忆时展示新增入口。
 - 预览弹层：供 JavaScript 动态填充图片或视频。
 
@@ -290,17 +356,17 @@ ALLOW_PUBLIC_REGISTRATION = env_bool("ALLOW_PUBLIC_REGISTRATION", DEBUG)
 <link rel="preload" as="image" href="..." fetchpriority="high">
 ```
 
-对应图片标签使用 `loading="eager"`、`decoding="async"` 和 `fetchpriority`，让浏览器在页面打开时尽早请求图片。视频仅给出预加载和内联播放提示，不强制整段下载。
+对应 React 图片缩略图使用 `loading="eager"`、`decoding="async"` 和 `fetchPriority`，让浏览器在页面打开时尽早请求图片。视频仅给出元数据预加载和内联播放提示，不强制整段下载。
 
-每张回忆卡片包含：
+每条回忆行包含：
 
 - 日期，未填写时显示 `某一天`。
+- 最多两张图片/视频缩略图，点击打开媒体预览；媒体视图最多展示三张。
 - 标题。
-- 修改入口。
-- 删除按钮。
 - 地点和心情标签。
-- 正文。
-- 图片/视频缩略图。
+- 正文摘要。
+- 媒体数量、修改入口和删除按钮。
+- 点击行主体进入回忆详情页；点击媒体缩略图仍打开预览弹层，点击修改/删除只执行对应操作。
 
 删除回忆使用 POST 表单，并通过浏览器 `confirm` 弹窗二次确认：
 
@@ -316,9 +382,23 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 | `data-media-type` | `image` 或 `video` |
 | `data-media-name` | 原始文件名，用作预览标题或图片 alt |
 
-这些属性由 `static/js/app.js` 读取，用来预热列表媒体并创建预览弹层内容。
+这些属性现在由 React 的媒体预览组件读取，用来创建预览弹层内容；列表图片预热由 head preload 和 `MediaThumbnail` 的 eager/high priority 属性完成，旧 `static/js/app.js` 不再作为主入口引用。
 
-### 2.6 新增/编辑回忆页
+### 2.6 回忆详情页
+
+文件：`templates/memories/memoir_detail.html`
+
+路由：
+
+```text
+/memoirs/<uuid>/
+```
+
+详情页由 `memoir_detail` 视图传入单条 `Memoir` 的序列化数据，React 渲染完整标题、日期、地点、心情、普通文本正文和全部照片/视频。媒体缩略图不显示文件名文字，点击后打开预览弹层，右侧整理区域提供编辑入口。
+
+全站相册页由 `media_gallery` 视图传入当前账号全部 `MemoirMedia`，React 渲染 `/memoirs/media/`。相册格子只展示图片/视频本身和必要的视频播放图标，不展示标题、正文或文件名描述。
+
+### 2.7 新增/编辑回忆页
 
 文件：`templates/memories/memoir_form.html`
 
@@ -370,7 +450,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 说明：
 
 - `name="media"` 与后端 `request.FILES.getlist("media")` 对应。
-- 选择图片或视频后，`static/js/app.js` 会使用浏览器本地 `objectURL` 显示缩略预览。
+- 选择图片或视频后，React 编辑器会使用浏览器本地 `objectURL` 显示缩略预览。
 - 手机扫码上传成功后，电脑端状态列表会通过受保护的临时预览接口显示缩略图。
 - `accept="image/*,video/*"` 在浏览器层面引导用户选择图片或视频。
 - `multiple` 允许一次选择多个文件。
@@ -383,9 +463,9 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 - 保存时，勾选的媒体记录会被删除。
 - 删除媒体记录会触发模型信号，同步删除磁盘文件。
 
-### 2.7 CSS 视觉系统
+### 2.8 CSS 视觉系统
 
-文件：`static/css/app.css`
+文件：`frontend/src/styles/app.css`，构建产物为 `static/frontend/app.css`
 
 当前 CSS 是单文件全局样式，没有引入 CSS 框架。
 
@@ -396,9 +476,9 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 - 主色为绿色/青绿色。
 - 辅助色包含珊瑚色、金色、薰衣草色。
 - 大量使用 8px 圆角。
-- 表单、卡片、工具栏使用半透明面板和轻微阴影。
+- 表单和工具栏保持半透明面板；列表页改为低阴影的档案表格密度。
 - 登录页使用全屏背景图和玻璃感登录卡片。
-- 列表页使用卡片式时间线。
+- 列表页使用左侧深墨绿档案栏和紧凑时间线表格。
 - 媒体预览弹层使用深色背景。
 
 重要 CSS 变量：
@@ -432,7 +512,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 - `.login-shell` / `.login-scene` / `.login-card`：登录注册页面。
 - `.preview-backdrop` / `.preview-dialog`：媒体预览弹层。
 
-### 2.8 响应式适配
+### 2.9 响应式适配
 
 CSS 里主要使用三个断点：
 
@@ -452,9 +532,9 @@ CSS 里主要使用三个断点：
 - 图片/视频缩略图从两列进一步降为单列。
 - 登录卡片减少内边距。
 
-### 2.9 JavaScript 交互
+### 2.10 JavaScript 交互
 
-文件：`static/js/app.js`
+文件：`frontend/src/` 下的 React 组件，构建产物为 `static/frontend/app.js`
 
 项目中的 JavaScript 只负责增强页面体验，不承载核心业务逻辑。即使 JavaScript 不运行，后端表单提交仍然可以保存数据。
 
@@ -645,13 +725,16 @@ admin.site.index_title = "后台管理"
 | --- | --- | --- | --- | --- |
 | `/` | `memoir_list` | `memoir_list` | GET | 回忆列表首页 |
 | `/memoirs/` | `memoir_list_alt` | `memoir_list` | GET | 回忆列表备用路径 |
+| `/memoirs/media/` | `media_gallery` | `media_gallery` | GET | 当前账号全站媒体相册 |
 | `/memoirs/new/` | `memoir_create` | `memoir_create` | GET/POST | 新增回忆 |
+| `/memoirs/<uuid:pk>/` | `memoir_detail` | `memoir_detail` | GET | 回忆详情 |
 | `/memoirs/<uuid:pk>/edit/` | `memoir_update` | `memoir_update` | GET/POST | 编辑回忆 |
 | `/memoirs/<uuid:pk>/delete/` | `memoir_delete` | `memoir_delete` | POST | 删除回忆 |
 | `/mobile-upload/<str:token>/` | `mobile_upload` | `mobile_upload` | GET/POST | 手机端限时上传页 |
 | `/mobile-upload/<str:token>/status/` | `mobile_upload_status` | `mobile_upload_status` | GET | 电脑端轮询手机上传状态 |
 | `/mobile-upload/<str:token>/items/<int:item_id>/preview/` | `mobile_upload_item_preview` | `mobile_upload_item_preview` | GET | 手机上传临时/已入库文件预览 |
-| `/protected-media/<path:file_path>` | `protected_media` | `protected_media` | GET | 受保护媒体读取 |
+| `/protected-media/<path:file_path>` | `protected_media` | `protected_media` | GET | 受保护媒体读取；`?download=1` 下载原文件 |
+| `/protected-media-thumbnails/<int:media_id>/` | `protected_media_thumbnail` | `protected_media_thumbnail` | GET | 受保护图片 WebP 缩略图 |
 
 除了登录、注册和后台外，核心回忆页面均要求登录。
 
@@ -930,8 +1013,20 @@ target.relative_to(media_root)
 返回：
 
 ```python
-FileResponse(target.open("rb"), content_type=content_type)
+file_response_with_range(request, target, content_type, download_name, as_attachment)
 ```
+
+当前实现会为媒体响应添加私有缓存头和 `Accept-Ranges: bytes`。当浏览器发送单段 `Range` 请求时返回 `206 Partial Content` 和 `Content-Range`，非法范围返回 `416`；当 URL 带 `?download=1` 时使用原始文件名作为附件下载。
+
+#### 3.7.10 私有图片缩略图视图 `protected_media_thumbnail`
+
+装饰器：
+
+```python
+@login_required
+```
+
+访问规则与 `protected_media` 一致：owner 或 staff 可访问，其他用户返回 404。图片缩略图按需生成到 `MEDIA_ROOT/.thumbnails/`，格式为 WebP，生成失败时回退读取原图，保证页面仍能显示。
 
 ### 3.8 后台管理
 
@@ -1466,7 +1561,22 @@ http://127.0.0.1:8017/
 http://127.0.0.1:8017/admin/
 ```
 
-### 6.6 本地 `.env` 示例
+### 6.6 构建 React 前端
+
+前端依赖和构建脚本在 `frontend/package.json`。构建产物输出到 `static/frontend/`，并配置为不清空输出目录。
+
+```powershell
+npm install --prefix frontend
+npm run build --prefix frontend
+```
+
+如果 `memoirs` conda 环境中没有 `npm`，先安装 Node.js/npm：
+
+```powershell
+conda install -n memoirs "nodejs>=22"
+```
+
+### 6.7 本地 `.env` 示例
 
 可以从 `.env.example` 复制为 `.env`，本地最小配置示例：
 
@@ -1673,6 +1783,9 @@ memories/tests.py
 - 编辑回忆时修改字段、删除旧媒体、追加新媒体。
 - 删除回忆时清理媒体文件。
 - 受保护媒体只允许 owner 或 staff 访问。
+- 全站相册只返回当前用户媒体。
+- 受保护媒体支持原文件下载、合法 Range 返回 206、非法 Range 返回 416。
+- 受保护图片缩略图接口延续 owner/staff 权限控制。
 
 测试媒体目录：
 
@@ -2023,7 +2136,7 @@ ALLOW_PUBLIC_REGISTRATION=False
 - 更完善的标签体系。
 - 按年份/月度归档。
 - 收藏或置顶。
-- 回忆详情页。
+- 详情页评论、置顶或更多排版能力。
 - 富文本编辑。
 - 数据备份导出。
 - 对象存储替代本地 Volume。
