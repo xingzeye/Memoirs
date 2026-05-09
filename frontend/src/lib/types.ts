@@ -13,6 +13,7 @@ export type AppRoutes = {
   mediaGallery?: string;
   backup?: string;
   exportBackup?: string;
+  importBackup?: string;
   loginPage?: string;
   registerPage?: string;
 };

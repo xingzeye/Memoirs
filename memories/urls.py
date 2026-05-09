@@ -9,6 +9,7 @@ urlpatterns = [
     path("memoirs/media/", views.media_gallery, name="media_gallery"),
     path("memoirs/backup/", views.backup, name="backup"),
     path("memoirs/export/", views.memoir_export, name="memoir_export"),
+    path("memoirs/import/", views.memoir_import, name="memoir_import"),
     path("memoirs/new/", views.memoir_create, name="memoir_create"),
     path("memoirs/<uuid:pk>/", views.memoir_detail, name="memoir_detail"),
     path("memoirs/<uuid:pk>/edit/", views.memoir_update, name="memoir_update"),

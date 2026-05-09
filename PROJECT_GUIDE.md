@@ -33,7 +33,7 @@
 - 支持回忆列表中的图片/视频预览弹层。
 - 支持回忆列表首批图片缩略图在页面打开时通过 head preload 和 eager/high priority 提示主动加载。
 - 支持 `/memoirs/media/` 全站相册页，集中查看当前账号全部照片和视频；相册支持照片/视频、年份、地点筛选，按所属回忆日期分组，媒体格子不显示文字描述。
-- 支持 `/memoirs/backup/` 备份导出页，当前账号可下载未进入回收站的回忆 ZIP，包含结构化 JSON、可读 Markdown 和原始媒体文件。
+- 支持 `/memoirs/backup/` 备份页，当前账号可下载未进入回收站的回忆 ZIP，包含结构化 JSON、可读 Markdown 和原始媒体文件；也可把本应用导出的 ZIP 导入为当前账号的新回忆。
 - 支持回忆库、全站相册和详情页媒体分页加载；列表每页 20 条回忆且仅返回最多 3 个预览媒体，相册和详情页媒体每页 60 个。
 - 媒体预览弹层提供下载原图/原视频按钮；相册媒体还可从预览弹层跳回所属回忆详情页。
 - 回忆库首页采用左侧深墨绿档案导航、顶部搜索筛选和紧凑时间线列表；统计区显示回忆、照片和视频数量。
@@ -102,7 +102,7 @@ E:\Memoirs
 │       ├── memoir_list.html         # 回忆列表页标题壳
 │       ├── memoir_detail.html       # 回忆详情页标题壳
 │       ├── memoir_form.html         # 新增/编辑回忆页标题壳
-│       ├── backup.html              # 备份导出页标题壳
+│       ├── backup.html              # 备份导出与导入页标题壳
 │       └── mobile_upload.html       # 手机上传页标题壳
 ├── frontend/                        # React/Vite 前端源码
 │   ├── package.json                 # 前端依赖与构建脚本
@@ -184,7 +184,7 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 | `templates/memories/memoir_list.html` | 回忆库标题壳和首批图片 head preload |
 | `templates/memories/memoir_detail.html` | 回忆详情标题壳 |
 | `templates/memories/memoir_form.html` | 新增/编辑标题壳 |
-| `templates/memories/backup.html` | 备份导出标题壳 |
+| `templates/memories/backup.html` | 备份导出与导入标题壳 |
 | `templates/memories/mobile_upload.html` | 手机上传标题壳 |
 | `frontend/src/components/` | 登录/注册、回忆库、全站相册、详情页、编辑器、手机上传和媒体预览组件 |
 | `frontend/src/lib/` | 初始上下文、CSRF、fetch API 和共享类型 |
@@ -406,7 +406,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 
 全站相册页由 `media_gallery` 视图传入当前账号未进入回收站的第一页 `MemoirMedia`，React 渲染 `/memoirs/media/`。相册支持 `type=image|video`、`year=YYYY`、`location=<地点>` 查询参数；年份和日期分组使用所属回忆的 `memory_date`，无日期媒体放入“未记录日期”分组。相册格子只展示图片/视频本身和必要的视频播放图标，不展示标题、正文或文件名描述；点击媒体打开预览弹层，弹层可下载原文件或跳回所属回忆详情页。后续媒体通过 `/api/memoirs/media/` 按页加载，默认每页 60 个、最大 100 个。
 
-### 2.6.1 备份导出页
+### 2.6.1 备份导出与导入页
 
 文件：`templates/memories/backup.html`
 
@@ -416,7 +416,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 /memoirs/backup/
 ```
 
-备份页由 `backup` 视图注入当前账号未进入回收站的回忆和媒体统计，React 渲染 `BackupScreen`。页面只提供“下载备份 ZIP”入口，不提供上传、导入、恢复或覆盖现有数据的 UI，并明确提示回收站内容不会包含在备份内。
+备份页由 `backup` 视图注入当前账号未进入回收站的回忆和媒体统计，React 渲染 `BackupScreen`。页面提供“下载备份 ZIP”和“导入备份 ZIP”两个入口，并明确提示回收站内容不会包含在导出内。导入只接受本应用导出的 ZIP，会把备份内容归属到当前登录账号并创建新的回忆和媒体记录，不覆盖现有数据，也不恢复回收站状态。
 
 下载路由：
 
@@ -434,6 +434,14 @@ media/<memoir_id>/<media_id>-<safe-original-filename>
 ```
 
 `manifest.json` 记录格式版本、导出时间、应用名、用户名、回忆数和媒体数；`memoirs.json` 保留回忆字段、创建/更新时间和媒体元数据；Markdown 面向人工阅读，包含标题、日期、地点、心情、正文和媒体相对链接。
+
+导入路由：
+
+```text
+/memoirs/import/
+```
+
+`memoir_import` 只接受 POST 上传字段 `backup`。后端会校验 `manifest.json` 的应用名和格式版本，读取 `memoirs.json` 与 `media/*` 原始文件，并在一个事务中导入：若 ZIP 损坏、格式不匹配或引用的媒体缺失，本次导入会返回错误且不创建任何回忆。导入时不会复用备份里的旧 UUID，避免覆盖或冲突。
 
 ### 2.7 新增/编辑回忆页
 
@@ -763,8 +771,9 @@ admin.site.index_title = "后台管理"
 | `/` | `memoir_list` | `memoir_list` | GET | 回忆列表首页 |
 | `/memoirs/` | `memoir_list_alt` | `memoir_list` | GET | 回忆列表备用路径 |
 | `/memoirs/media/` | `media_gallery` | `media_gallery` | GET | 当前账号全站媒体相册；支持 `type`、`year`、`location` 筛选 |
-| `/memoirs/backup/` | `backup` | `backup` | GET | 当前账号备份导出页，只展示下载入口和导出范围说明 |
+| `/memoirs/backup/` | `backup` | `backup` | GET | 当前账号备份导出与导入页 |
 | `/memoirs/export/` | `memoir_export` | `memoir_export` | GET | 下载当前账号未进回收站回忆的 JSON、Markdown 和媒体 ZIP |
+| `/memoirs/import/` | `memoir_import` | `memoir_import` | POST | 导入本应用备份 ZIP，创建当前账号的新回忆和媒体 |
 | `/memoirs/new/` | `memoir_create` | `memoir_create` | GET/POST | 新增回忆 |
 | `/memoirs/<uuid:pk>/` | `memoir_detail` | `memoir_detail` | GET | 回忆详情 |
 | `/memoirs/<uuid:pk>/edit/` | `memoir_update` | `memoir_update` | GET/POST | 编辑回忆 |
@@ -2184,7 +2193,7 @@ ALLOW_PUBLIC_REGISTRATION=False
 适合在当前项目基础上继续扩展：
 
 - 分页。
-- 导入恢复。
+- 导入冲突处理和导入预览。
 - 媒体压缩和缩略图。
 - 更完善的标签体系。
 - 按年份/月度归档。

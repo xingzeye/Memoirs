@@ -26,6 +26,30 @@ def tiny_png_bytes() -> bytes:
 TINY_PNG_BYTES = tiny_png_bytes()
 
 
+def backup_zip_bytes(memoirs: list[dict], media_files: dict[str, bytes] | None = None) -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "formatVersion": 1,
+                    "app": "Memoirs",
+                    "exportedAt": "2026-05-09T12:00:00+08:00",
+                    "username": "backup-owner",
+                    "includeDeleted": False,
+                    "memoirCount": len(memoirs),
+                    "mediaCount": len(media_files or {}),
+                },
+                ensure_ascii=False,
+            ),
+        )
+        archive.writestr("memoirs.json", json.dumps({"memoirs": memoirs}, ensure_ascii=False))
+        for archive_path, content in (media_files or {}).items():
+            archive.writestr(archive_path, content)
+    return buffer.getvalue()
+
+
 def app_payload(response):
     return response.context["app_initial_data"]["payload"]
 
@@ -47,6 +71,7 @@ class MemoirViewTests(TestCase):
             reverse("memoir_create"),
             reverse("backup"),
             reverse("memoir_export"),
+            reverse("memoir_import"),
         ]:
             response = self.client.get(url)
             self.assertEqual(response.status_code, 302)
@@ -523,6 +548,7 @@ class MemoirViewTests(TestCase):
         self.assertContains(response, '"page": "backup"')
         payload = app_payload(response)
         self.assertEqual(payload["exportUrl"], reverse("memoir_export"))
+        self.assertEqual(payload["importUrl"], reverse("memoir_import"))
         self.assertEqual(payload["stats"]["memoirs"], 1)
         self.assertEqual(payload["stats"]["media"], 1)
         self.assertEqual(payload["stats"]["photos"], 1)
@@ -618,6 +644,139 @@ class MemoirViewTests(TestCase):
             self.assertNotIn("Other Memory", archive_text)
             self.assertFalse(any(name.startswith(f"media/{deleted.pk}/") for name in names))
             self.assertFalse(any(name.startswith(f"media/{other.pk}/") for name in names))
+
+    def test_import_backup_zip_creates_current_user_memoirs_and_media(self):
+        archive_path = "media/exported-memoir/7-imported-photo.png"
+        zip_bytes = backup_zip_bytes(
+            [
+                {
+                    "id": "exported-memoir",
+                    "title": "Imported Day",
+                    "story": "A restored story.",
+                    "memoryDate": "2026-05-08",
+                    "location": "Xiamen",
+                    "mood": "Warm",
+                    "media": [
+                        {
+                            "id": 7,
+                            "originalFilename": "imported photo.png",
+                            "mediaType": "image",
+                            "mimeType": "image/png",
+                            "size": len(TINY_PNG_BYTES),
+                            "archivePath": archive_path,
+                        }
+                    ],
+                }
+            ],
+            {archive_path: TINY_PNG_BYTES},
+        )
+
+        self.login()
+        response = self.client.post(
+            reverse("memoir_import"),
+            {"backup": SimpleUploadedFile("memoirs-backup.zip", zip_bytes, content_type="application/zip")},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["imported"], {"memoirs": 1, "media": 1})
+        self.assertEqual(payload["stats"]["memoirs"], 1)
+        self.assertEqual(payload["stats"]["media"], 1)
+        self.assertEqual(payload["redirect"], reverse("memoir_list"))
+
+        memoir = Memoir.objects.get(owner=self.user, title="Imported Day")
+        self.assertEqual(memoir.story, "A restored story.")
+        self.assertEqual(memoir.memory_date, date(2026, 5, 8))
+        self.assertEqual(memoir.location, "Xiamen")
+        self.assertEqual(memoir.mood, "Warm")
+        self.assertIsNone(memoir.deleted_at)
+
+        media = memoir.media_items.get()
+        self.assertEqual(media.original_filename, "imported photo.png")
+        self.assertEqual(media.media_type, MemoirMedia.MediaType.IMAGE)
+        self.assertEqual(media.mime_type, "image/png")
+        self.assertEqual(media.size, len(TINY_PNG_BYTES))
+        media.file.open("rb")
+        try:
+            self.assertEqual(media.file.read(), TINY_PNG_BYTES)
+        finally:
+            media.file.close()
+
+    def test_import_backup_creates_new_records_without_overwriting_existing_memoirs(self):
+        existing = Memoir.objects.create(title="Original", story="Keep this story.", owner=self.user)
+        zip_bytes = backup_zip_bytes(
+            [
+                {
+                    "id": str(existing.pk),
+                    "title": "Original",
+                    "story": "Imported copy.",
+                    "memoryDate": "",
+                    "location": "",
+                    "mood": "",
+                    "media": [],
+                }
+            ]
+        )
+
+        self.login()
+        response = self.client.post(
+            reverse("memoir_import"),
+            {"backup": SimpleUploadedFile("backup.zip", zip_bytes, content_type="application/zip")},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Memoir.objects.filter(owner=self.user).count(), 2)
+        existing.refresh_from_db()
+        self.assertEqual(existing.story, "Keep this story.")
+        imported = Memoir.objects.exclude(pk=existing.pk).get(owner=self.user)
+        self.assertEqual(imported.title, "Original")
+        self.assertEqual(imported.story, "Imported copy.")
+
+    def test_import_backup_rejects_invalid_zip_without_creating_memoirs(self):
+        self.login()
+        response = self.client.post(
+            reverse("memoir_import"),
+            {"backup": SimpleUploadedFile("backup.zip", b"not a zip", content_type="application/zip")},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("backup", response.json()["errors"])
+        self.assertEqual(Memoir.objects.filter(owner=self.user).count(), 0)
+
+    def test_import_backup_missing_media_rolls_back(self):
+        zip_bytes = backup_zip_bytes(
+            [
+                {
+                    "title": "Broken backup",
+                    "story": "Should not import.",
+                    "memoryDate": "2026-05-08",
+                    "location": "",
+                    "mood": "",
+                    "media": [
+                        {
+                            "originalFilename": "missing.jpg",
+                            "mediaType": "image",
+                            "mimeType": "image/jpeg",
+                            "archivePath": "media/missing/1-missing.jpg",
+                        }
+                    ],
+                }
+            ]
+        )
+
+        self.login()
+        response = self.client.post(
+            reverse("memoir_import"),
+            {"backup": SimpleUploadedFile("broken.zip", zip_bytes, content_type="application/zip")},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("缺少媒体文件", response.json()["errors"]["backup"][0])
+        self.assertEqual(Memoir.objects.filter(owner=self.user).count(), 0)
 
     def test_list_preloads_first_image_thumbnail(self):
         self.login()
