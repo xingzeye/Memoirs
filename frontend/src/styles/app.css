@@ -1625,6 +1625,73 @@ select:focus,
   min-width: 0;
 }
 
+.backup-import-card {
+  align-items: flex-start;
+}
+
+.backup-import-form {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.backup-file-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  max-width: 280px;
+  border: 1px solid #d6cfc2;
+  border-radius: 8px;
+  background: #fffefa;
+  color: var(--ink);
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.backup-file-input span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-file-input input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.backup-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 8px;
+  padding: 12px 14px;
+  line-height: 1.5;
+}
+
+.backup-message a {
+  color: inherit;
+  font-weight: 800;
+}
+
+.backup-message-success {
+  border: 1px solid rgba(31, 117, 105, 0.22);
+  background: rgba(31, 117, 105, 0.08);
+  color: #245d54;
+}
+
+.backup-message-error {
+  border: 1px solid rgba(180, 83, 58, 0.24);
+  background: rgba(180, 83, 58, 0.08);
+  color: #8d3f2c;
+}
+
 .backup-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2035,6 +2102,14 @@ select:focus,
   .backup-card {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .backup-import-form {
+    justify-content: stretch;
+  }
+
+  .backup-file-input {
+    max-width: none;
   }
 
   .backup-card .primary-button {

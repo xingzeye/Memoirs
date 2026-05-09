@@ -6,9 +6,9 @@ import mimetypes
 import re
 import zipfile
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 from io import BytesIO
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from django.conf import settings
 from django.contrib import messages
@@ -16,7 +16,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.exceptions import RequestDataTooBig, SuspiciousOperation
-from django.core.files.base import File
+from django.core.files.base import ContentFile, File
 from django.db import transaction
 from django.db.models import Count, F, Q, Window
 from django.db.models.functions import RowNumber
@@ -229,6 +229,7 @@ def app_routes() -> dict[str, str]:
         "mediaGalleryApi": reverse("api_media_gallery"),
         "backup": reverse("backup"),
         "exportBackup": reverse("memoir_export"),
+        "importBackup": reverse("memoir_import"),
         "loginPage": reverse("login"),
     }
     if settings.ALLOW_PUBLIC_REGISTRATION:
@@ -623,17 +624,22 @@ def memoir_media_payload(request: HttpRequest, memoir: Memoir) -> dict[str, obje
     }
 
 
+def backup_stats_for_user(user) -> dict[str, int]:
+    memoirs = Memoir.objects.filter(owner=user, deleted_at__isnull=True)
+    media_items = MemoirMedia.objects.filter(memoir__owner=user, memoir__deleted_at__isnull=True)
+    return {
+        "memoirs": memoirs.count(),
+        "media": media_items.count(),
+        "photos": media_items.filter(media_type=MemoirMedia.MediaType.IMAGE).count(),
+        "videos": media_items.filter(media_type=MemoirMedia.MediaType.VIDEO).count(),
+    }
+
+
 def backup_page_payload(request: HttpRequest) -> dict[str, object]:
-    memoirs = Memoir.objects.filter(owner=request.user, deleted_at__isnull=True)
-    media_items = MemoirMedia.objects.filter(memoir__owner=request.user, memoir__deleted_at__isnull=True)
     return {
         "exportUrl": reverse("memoir_export"),
-        "stats": {
-            "memoirs": memoirs.count(),
-            "media": media_items.count(),
-            "photos": media_items.filter(media_type=MemoirMedia.MediaType.IMAGE).count(),
-            "videos": media_items.filter(media_type=MemoirMedia.MediaType.VIDEO).count(),
-        },
+        "importUrl": reverse("memoir_import"),
+        "stats": backup_stats_for_user(request.user),
     }
 
 
@@ -737,6 +743,178 @@ def build_backup_zip(request: HttpRequest) -> tuple[bytes, str]:
         archive.writestr("memoirs.json", json.dumps({"memoirs": backup_memoirs}, ensure_ascii=False, indent=2))
 
     return buffer.getvalue(), filename
+
+
+def read_backup_json(archive: zipfile.ZipFile, member_name: str) -> dict[str, object]:
+    try:
+        raw = archive.read(member_name)
+    except KeyError as exc:
+        raise ValueError(f"备份文件缺少 {member_name}。") from exc
+
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{member_name} 不是有效的 JSON。") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"{member_name} 格式不正确。")
+    return payload
+
+
+def clean_backup_archive_path(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("备份媒体缺少文件路径。")
+
+    path_text = value.replace("\\", "/").strip()
+    path = PurePosixPath(path_text)
+    if (
+        path.is_absolute()
+        or path_text.endswith("/")
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or not path.as_posix().startswith("media/")
+    ):
+        raise ValueError("备份媒体文件路径不安全。")
+    return path.as_posix()
+
+
+def backup_text(value: object, max_length: int | None = None, *, strip: bool = True) -> str:
+    text = value if isinstance(value, str) else ("" if value is None else str(value))
+    if strip:
+        text = text.strip()
+    if max_length is not None:
+        text = text[:max_length]
+    return text
+
+
+def backup_import_date(value: object) -> date | None:
+    text = backup_text(value)
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError(f"备份中存在无法识别的回忆日期：{text}") from exc
+
+
+def backup_media_classification(record: dict[str, object], original_filename: str) -> tuple[str, str]:
+    media_type = backup_text(record.get("mediaType"))
+    mime_type = backup_text(record.get("mimeType")) or mimetypes.guess_type(original_filename)[0] or ""
+    suffix = Path(original_filename).suffix.lower()
+
+    if media_type in {MemoirMedia.MediaType.IMAGE, MemoirMedia.MediaType.VIDEO}:
+        return media_type, mime_type
+    if mime_type.startswith("image/") or suffix in IMAGE_EXTENSIONS:
+        return MemoirMedia.MediaType.IMAGE, mime_type
+    if mime_type.startswith("video/") or suffix in VIDEO_EXTENSIONS:
+        return MemoirMedia.MediaType.VIDEO, mime_type
+    raise ValueError(f"备份中包含不支持的媒体类型：{original_filename}")
+
+
+def prepared_backup_memoirs(archive: zipfile.ZipFile, memoirs_payload: object) -> list[dict[str, object]]:
+    if not isinstance(memoirs_payload, list):
+        raise ValueError("memoirs.json 缺少回忆列表。")
+
+    prepared: list[dict[str, object]] = []
+    for memoir_index, memoir_record in enumerate(memoirs_payload, start=1):
+        if not isinstance(memoir_record, dict):
+            raise ValueError("memoirs.json 中存在格式不正确的回忆记录。")
+
+        media_records = memoir_record.get("media") or []
+        if not isinstance(media_records, list):
+            raise ValueError("备份回忆中的媒体列表格式不正确。")
+
+        prepared_media: list[dict[str, object]] = []
+        for media_index, media_record in enumerate(media_records, start=1):
+            if not isinstance(media_record, dict):
+                raise ValueError("备份回忆中的媒体记录格式不正确。")
+            archive_path = clean_backup_archive_path(media_record.get("archivePath"))
+            try:
+                media_info = archive.getinfo(archive_path)
+            except KeyError as exc:
+                raise ValueError(f"备份缺少媒体文件：{archive_path}") from exc
+            if media_info.is_dir():
+                raise ValueError(f"备份媒体路径不是文件：{archive_path}")
+
+            raw_filename = backup_text(media_record.get("originalFilename"), 255) or PurePosixPath(archive_path).name
+            original_filename = backup_text(raw_filename, 255) or f"media-{memoir_index}-{media_index}"
+            storage_filename = safe_backup_name(original_filename, f"media-{memoir_index}-{media_index}", 120)
+            media_type, mime_type = backup_media_classification(media_record, original_filename)
+            prepared_media.append(
+                {
+                    "archivePath": archive_path,
+                    "originalFilename": original_filename,
+                    "storageFilename": storage_filename,
+                    "mediaType": media_type,
+                    "mimeType": mime_type,
+                }
+            )
+
+        prepared.append(
+            {
+                "title": backup_text(memoir_record.get("title"), 120) or f"导入的回忆 {memoir_index}",
+                "story": backup_text(memoir_record.get("story"), strip=False),
+                "memoryDate": backup_import_date(memoir_record.get("memoryDate")),
+                "location": backup_text(memoir_record.get("location"), 120),
+                "mood": backup_text(memoir_record.get("mood"), 60),
+                "media": prepared_media,
+            }
+        )
+    return prepared
+
+
+def import_backup_zip(user, upload) -> dict[str, int]:
+    if upload is None:
+        raise ValueError("请选择要导入的备份 ZIP 文件。")
+
+    try:
+        zip_bytes = upload.read()
+    except Exception as exc:
+        raise ValueError("无法读取上传的备份文件。") from exc
+    if not zip_bytes:
+        raise ValueError("上传的备份文件是空的。")
+
+    try:
+        with zipfile.ZipFile(BytesIO(zip_bytes), "r") as archive:
+            manifest = read_backup_json(archive, "manifest.json")
+            if manifest.get("app") != "Memoirs" or manifest.get("formatVersion") != BACKUP_FORMAT_VERSION:
+                raise ValueError("请上传由本应用导出的备份 ZIP。")
+            memoirs_payload = read_backup_json(archive, "memoirs.json")
+            prepared = prepared_backup_memoirs(archive, memoirs_payload.get("memoirs"))
+            bad_member = archive.testzip()
+            if bad_member:
+                raise ValueError(f"备份文件已损坏：{bad_member}")
+
+            imported_memoirs = 0
+            imported_media = 0
+            with transaction.atomic():
+                for record in prepared:
+                    memoir = Memoir.objects.create(
+                        owner=user,
+                        title=record["title"],
+                        story=record["story"],
+                        memory_date=record["memoryDate"],
+                        location=record["location"],
+                        mood=record["mood"],
+                    )
+                    imported_memoirs += 1
+
+                    for media_record in record["media"]:
+                        media_bytes = archive.read(media_record["archivePath"])
+                        media = MemoirMedia(
+                            memoir=memoir,
+                            original_filename=media_record["originalFilename"],
+                            media_type=media_record["mediaType"],
+                            mime_type=media_record["mimeType"],
+                            size=len(media_bytes),
+                        )
+                        media.file.save(media_record["storageFilename"], ContentFile(media_bytes), save=False)
+                        media.size = len(media_bytes)
+                        media.save()
+                        imported_media += 1
+    except zipfile.BadZipFile as exc:
+        raise ValueError("请上传有效的备份 ZIP 文件。") from exc
+
+    return {"memoirs": imported_memoirs, "media": imported_media}
 
 
 def mobile_upload_item_payload(item: MobileUploadItem) -> dict[str, object]:
@@ -1081,6 +1259,25 @@ def memoir_export(request: HttpRequest) -> HttpResponse:
     response["Content-Length"] = str(len(zip_bytes))
     response["X-Content-Type-Options"] = "nosniff"
     return response
+
+
+@login_required
+@require_POST
+def memoir_import(request: HttpRequest) -> HttpResponse:
+    upload = request.FILES.get("backup")
+    try:
+        imported = import_backup_zip(request.user, upload)
+    except ValueError as exc:
+        return JsonResponse({"errors": {"backup": [str(exc)]}}, status=400)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "imported": imported,
+            "stats": backup_stats_for_user(request.user),
+            "redirect": reverse("memoir_list"),
+        }
+    )
 
 
 @login_required

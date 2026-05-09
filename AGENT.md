@@ -11,7 +11,7 @@
 - 2026-05-06：受保护媒体支持 `Range` 分段读取、私有缓存头和 `?download=1` 原文件下载；图片缩略图通过 `/protected-media-thumbnails/<media_id>/` 按需生成 WebP。
 - 2026-05-07：新增真正的回收站；普通删除只写入 `Memoir.deleted_at` 并保留媒体，回收站支持恢复和永久删除，永久删除才级联清理媒体文件。
 - 2026-05-07：升级全站相册；`/memoirs/media/` 支持照片/视频、回忆年份、地点筛选，按所属回忆日期分组，预览弹层可跳回所属回忆。
-- 2026-05-09：新增备份导出 V1；`/memoirs/backup/` 提供当前账号正常回忆的 ZIP 下载入口，`/memoirs/export/` 导出 JSON、Markdown 和原始媒体文件，不包含回收站内容且不提供导入恢复。
+- 2026-05-09：新增备份导出与导入；`/memoirs/backup/` 提供当前账号正常回忆的 ZIP 下载入口，`/memoirs/export/` 导出 JSON、Markdown 和原始媒体文件，`/memoirs/import/` 可把本应用备份 ZIP 导入为当前账号的新回忆，不包含或恢复回收站状态。
 - 2026-05-09：新增分页与媒体懒加载；回忆库每页 20 条且只返回最多 3 个预览媒体，相册和详情页媒体每页 60 个，通过“加载更多”继续追加。
 - 用户可见页面已切换为 React/Vite 前端体验层，Django Template 现在主要负责输出 `#memoirs-root` 和初始 JSON 上下文。
 - React 源码位于 `frontend/`，构建产物输出到 `static/frontend/app.js` 与 `static/frontend/app.css`。
@@ -188,7 +188,7 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - 点击媒体可以打开前端预览弹层。
 - 预览弹层不显示文件名正文，提供下载原图/原视频按钮。
 - 全站相册媒体项包含所属回忆标题、详情 URL、回忆日期、地点和心情；相册按所属回忆日期分组，无日期进入“未记录日期”。
-- 侧栏和账号菜单提供备份导出入口；备份只下载当前账号未进入回收站的回忆、Markdown、JSON 和原始媒体 ZIP，不提供导入功能。
+- 侧栏和账号菜单提供备份入口；备份只下载当前账号未进入回收站的回忆、Markdown、JSON 和原始媒体 ZIP。导入只接受本应用导出的 ZIP，会创建当前账号的新回忆和媒体，不覆盖现有内容。
 - 点击回忆行主体会打开 `/memoirs/<uuid>/` 详情页，集中展示完整正文，并分页加载该回忆的照片和视频。
 
 ### 新增与编辑回忆
@@ -262,8 +262,9 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - `/`：回忆列表，名称 `memoir_list`
 - `/memoirs/`：回忆列表备用路径，名称 `memoir_list_alt`
 - `/memoirs/media/`：全站媒体相册，名称 `media_gallery`，支持 `type=image|video`、`year=YYYY`、`location=<地点>`
-- `/memoirs/backup/`：备份导出页，名称 `backup`
+- `/memoirs/backup/`：备份导出与导入页，名称 `backup`
 - `/memoirs/export/`：备份 ZIP 下载，名称 `memoir_export`
+- `/memoirs/import/`：备份 ZIP 导入，名称 `memoir_import`
 - `/memoirs/new/`：新增回忆，名称 `memoir_create`
 - `/memoirs/<uuid:pk>/`：回忆详情，名称 `memoir_detail`
 - `/memoirs/<uuid:pk>/edit/`：编辑回忆，名称 `memoir_update`
@@ -418,4 +419,4 @@ conda install -n memoirs "nodejs>=22"
 
 ## 当前项目状态总结
 
-这个项目已经具备一个可用的本地私人回忆管理闭环：登录、创建回忆、上传图片/视频、搜索筛选、编辑、删除、媒体私有访问、后台管理和基础测试。后续增强可以围绕分页、批量导入导出、媒体压缩、更多标签体系、部署安全配置和更细的权限管理展开。
+这个项目已经具备一个可用的本地私人回忆管理闭环：登录、创建回忆、上传图片/视频、搜索筛选、编辑、删除、备份导出导入、媒体私有访问、后台管理和基础测试。后续增强可以围绕导入预览、媒体压缩、更多标签体系、部署安全配置和更细的权限管理展开。
