@@ -1,4 +1,5 @@
 import json
+import zipfile
 from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
@@ -40,7 +41,13 @@ class MemoirViewTests(TestCase):
         self.client.login(username="owner", password="secret12345")
 
     def test_core_pages_require_login(self):
-        for url in [reverse("memoir_list"), reverse("media_gallery"), reverse("memoir_create")]:
+        for url in [
+            reverse("memoir_list"),
+            reverse("media_gallery"),
+            reverse("memoir_create"),
+            reverse("backup"),
+            reverse("memoir_export"),
+        ]:
             response = self.client.get(url)
             self.assertEqual(response.status_code, 302)
             self.assertIn(reverse("login"), response["Location"])
@@ -252,6 +259,66 @@ class MemoirViewTests(TestCase):
         self.assertEqual(stats["photos"], 1)
         self.assertEqual(stats["videos"], 1)
 
+    def test_memoir_api_paginates_and_limits_preview_media(self):
+        media_owner = None
+        for index in range(25):
+            memoir = Memoir.objects.create(
+                title=f"Memory {index:02d}",
+                memory_date=date(2026, 1, 1) + timedelta(days=index),
+                owner=self.user,
+            )
+            if index == 24:
+                media_owner = memoir
+        for index in range(5):
+            MemoirMedia.objects.create(
+                memoir=media_owner,
+                file=SimpleUploadedFile(f"preview-{index}.jpg", TINY_PNG_BYTES, content_type="image/png"),
+                original_filename=f"preview-{index}.jpg",
+                media_type=MemoirMedia.MediaType.IMAGE,
+                mime_type="image/png",
+                size=len(TINY_PNG_BYTES),
+            )
+
+        self.login()
+        response = self.client.get(reverse("api_memoirs"))
+        payload = response.json()
+
+        self.assertEqual(len(payload["memoirs"]), 20)
+        self.assertEqual(payload["pagination"]["page"], 1)
+        self.assertEqual(payload["pagination"]["pageSize"], 20)
+        self.assertTrue(payload["pagination"]["hasMore"])
+        self.assertEqual(payload["pagination"]["nextPage"], 2)
+        first = payload["memoirs"][0]
+        self.assertEqual(first["title"], "Memory 24")
+        self.assertEqual(first["mediaCount"], 5)
+        self.assertEqual(len(first["media"]), 3)
+        self.assertEqual(first["urls"]["media"], reverse("api_memoir_media", kwargs={"pk": media_owner.pk}))
+
+        second_response = self.client.get(f"{reverse('api_memoirs')}?page=2")
+        second_payload = second_response.json()
+        self.assertEqual(len(second_payload["memoirs"]), 5)
+        self.assertFalse(second_payload["pagination"]["hasMore"])
+        self.assertIsNone(second_payload["pagination"]["nextPage"])
+        self.assertFalse({item["id"] for item in payload["memoirs"]} & {item["id"] for item in second_payload["memoirs"]})
+
+    def test_memoir_api_supports_server_side_sections_and_sort(self):
+        dated = Memoir.objects.create(title="Dated", memory_date=date(2026, 1, 2), location="厦门", mood="平静", owner=self.user)
+        older = Memoir.objects.create(title="Older", memory_date=date(2026, 1, 1), owner=self.user)
+        Memoir.objects.create(title="Letter", story="正文", owner=self.user)
+        Memoir.objects.create(title="No metadata", owner=self.user)
+
+        self.login()
+        payload = self.client.get(f"{reverse('api_memoirs')}?section=timeline&sort=asc").json()
+        self.assertEqual([item["title"] for item in payload["memoirs"]], ["Older", "Dated"])
+        self.assertEqual(payload["section"], "timeline")
+        self.assertEqual(payload["sort"], "asc")
+
+        payload = self.client.get(f"{reverse('api_memoirs')}?section=location").json()
+        self.assertEqual([item["title"] for item in payload["memoirs"]], ["Dated"])
+
+        payload = self.client.get(f"{reverse('api_memoirs')}?section=letter").json()
+        self.assertEqual([item["title"] for item in payload["memoirs"]], ["Letter"])
+
     def test_media_gallery_only_includes_current_user_media(self):
         owner_memoir = Memoir.objects.create(
             title="Owner memory",
@@ -386,6 +453,172 @@ class MemoirViewTests(TestCase):
         self.assertEqual(payload["filters"]["location"], "厦门")
         self.assertCountEqual([item["name"] for item in payload["media"]], ["xiamen.jpg", "xiamen.mp4", "undated.jpg"])
 
+    def test_media_gallery_api_paginates_filtered_media(self):
+        memoir = Memoir.objects.create(
+            title="Paged gallery",
+            memory_date=date(2026, 5, 1),
+            location="厦门",
+            owner=self.user,
+        )
+        deleted = Memoir.objects.create(title="Deleted gallery", location="厦门", owner=self.user)
+        deleted.soft_delete()
+        for index in range(65):
+            MemoirMedia.objects.create(
+                memoir=memoir,
+                file=SimpleUploadedFile(f"gallery-{index}.jpg", TINY_PNG_BYTES, content_type="image/png"),
+                original_filename=f"gallery-{index}.jpg",
+                media_type=MemoirMedia.MediaType.IMAGE,
+                mime_type="image/png",
+                size=len(TINY_PNG_BYTES),
+            )
+        MemoirMedia.objects.create(
+            memoir=deleted,
+            file=SimpleUploadedFile("deleted-gallery.jpg", TINY_PNG_BYTES, content_type="image/png"),
+            original_filename="deleted-gallery.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/png",
+            size=len(TINY_PNG_BYTES),
+        )
+
+        self.login()
+        payload = self.client.get(f"{reverse('api_media_gallery')}?type=image&location=%E5%8E%A6%E9%97%A8").json()
+
+        self.assertEqual(len(payload["media"]), 60)
+        self.assertEqual(payload["stats"]["media"], 65)
+        self.assertTrue(payload["pagination"]["hasMore"])
+        self.assertEqual(payload["pagination"]["nextPage"], 2)
+        self.assertEqual(payload["filters"]["type"], "image")
+        self.assertEqual(payload["filters"]["location"], "厦门")
+        self.assertNotIn("deleted-gallery.jpg", [item["name"] for item in payload["media"]])
+
+        second_payload = self.client.get(f"{reverse('api_media_gallery')}?type=image&location=%E5%8E%A6%E9%97%A8&page=2").json()
+        self.assertEqual(len(second_payload["media"]), 5)
+        self.assertFalse(second_payload["pagination"]["hasMore"])
+
+    def test_backup_page_shows_active_export_scope(self):
+        active = Memoir.objects.create(title="Active export", owner=self.user)
+        deleted = Memoir.objects.create(title="Deleted export", owner=self.user)
+        deleted.soft_delete()
+        MemoirMedia.objects.create(
+            memoir=active,
+            file=SimpleUploadedFile("active.jpg", TINY_PNG_BYTES, content_type="image/png"),
+            original_filename="active.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/png",
+            size=len(TINY_PNG_BYTES),
+        )
+        MemoirMedia.objects.create(
+            memoir=deleted,
+            file=SimpleUploadedFile("deleted.jpg", TINY_PNG_BYTES, content_type="image/png"),
+            original_filename="deleted.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/png",
+            size=len(TINY_PNG_BYTES),
+        )
+
+        self.login()
+        response = self.client.get(reverse("backup"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '"page": "backup"')
+        payload = app_payload(response)
+        self.assertEqual(payload["exportUrl"], reverse("memoir_export"))
+        self.assertEqual(payload["stats"]["memoirs"], 1)
+        self.assertEqual(payload["stats"]["media"], 1)
+        self.assertEqual(payload["stats"]["photos"], 1)
+        self.assertEqual(payload["stats"]["videos"], 0)
+
+    def test_export_zip_contains_only_active_current_user_memoirs(self):
+        active = Memoir.objects.create(
+            title="Export Day",
+            story="A readable story for the backup.",
+            memory_date=date(2026, 5, 6),
+            location="Xiamen",
+            mood="Calm",
+            owner=self.user,
+        )
+        deleted = Memoir.objects.create(title="Trash Memory", owner=self.user)
+        deleted.soft_delete()
+        other = Memoir.objects.create(title="Other Memory", owner=self.other_user)
+        active_media = MemoirMedia.objects.create(
+            memoir=active,
+            file=SimpleUploadedFile("summer photo.png", TINY_PNG_BYTES, content_type="image/png"),
+            original_filename="summer photo.png",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/png",
+            size=len(TINY_PNG_BYTES),
+        )
+        MemoirMedia.objects.create(
+            memoir=deleted,
+            file=SimpleUploadedFile("trash.jpg", b"trash bytes", content_type="image/jpeg"),
+            original_filename="trash.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/jpeg",
+            size=11,
+        )
+        MemoirMedia.objects.create(
+            memoir=other,
+            file=SimpleUploadedFile("other.jpg", b"other bytes", content_type="image/jpeg"),
+            original_filename="other.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/jpeg",
+            size=11,
+        )
+
+        self.login()
+        response = self.client.get(reverse("memoir_export"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/zip")
+        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertIn("memoirs-backup-", response["Content-Disposition"])
+        self.assertIn(".zip", response["Content-Disposition"])
+
+        with zipfile.ZipFile(BytesIO(response.content), "r") as archive:
+            names = archive.namelist()
+            self.assertIn("manifest.json", names)
+            self.assertIn("memoirs.json", names)
+            markdown_paths = [name for name in names if name.startswith("markdown/") and name.endswith(".md")]
+            media_paths = [name for name in names if name.startswith(f"media/{active.pk}/")]
+            self.assertEqual(len(markdown_paths), 1)
+            self.assertEqual(len(media_paths), 1)
+            self.assertEqual(archive.read(media_paths[0]), TINY_PNG_BYTES)
+
+            manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+            self.assertEqual(manifest["formatVersion"], 1)
+            self.assertEqual(manifest["app"], "Memoirs")
+            self.assertEqual(manifest["username"], self.user.username)
+            self.assertFalse(manifest["includeDeleted"])
+            self.assertEqual(manifest["memoirCount"], 1)
+            self.assertEqual(manifest["mediaCount"], 1)
+
+            memoirs_payload = json.loads(archive.read("memoirs.json").decode("utf-8"))
+            self.assertEqual(len(memoirs_payload["memoirs"]), 1)
+            exported = memoirs_payload["memoirs"][0]
+            self.assertEqual(exported["id"], str(active.pk))
+            self.assertEqual(exported["title"], "Export Day")
+            self.assertEqual(exported["story"], "A readable story for the backup.")
+            self.assertEqual(exported["memoryDate"], "2026-05-06")
+            self.assertEqual(exported["location"], "Xiamen")
+            self.assertEqual(exported["mood"], "Calm")
+            self.assertEqual(exported["markdownPath"], markdown_paths[0])
+            self.assertEqual(exported["media"][0]["id"], active_media.id)
+            self.assertEqual(exported["media"][0]["archivePath"], media_paths[0])
+
+            markdown = archive.read(markdown_paths[0]).decode("utf-8")
+            self.assertIn("# Export Day", markdown)
+            self.assertIn("2026-05-06", markdown)
+            self.assertIn("Xiamen", markdown)
+            self.assertIn("Calm", markdown)
+            self.assertIn("A readable story for the backup.", markdown)
+            self.assertIn(f"../{media_paths[0]}", markdown)
+
+            archive_text = "\n".join(names) + "\n" + json.dumps(memoirs_payload)
+            self.assertNotIn("Trash Memory", archive_text)
+            self.assertNotIn("Other Memory", archive_text)
+            self.assertFalse(any(name.startswith(f"media/{deleted.pk}/") for name in names))
+            self.assertFalse(any(name.startswith(f"media/{other.pk}/") for name in names))
+
     def test_list_preloads_first_image_thumbnail(self):
         self.login()
         memoir = Memoir.objects.create(title="有媒体", owner=self.user)
@@ -414,6 +647,44 @@ class MemoirViewTests(TestCase):
         self.assertContains(response, "ready.jpg")
         self.assertContains(response, "ready.mp4")
         self.assertNotContains(response, f'<link rel="preload" as="image" href="{video.protected_url}"')
+
+    def test_detail_media_is_paginated_and_owner_only(self):
+        memoir = Memoir.objects.create(title="Detail media", owner=self.user)
+        for index in range(65):
+            MemoirMedia.objects.create(
+                memoir=memoir,
+                file=SimpleUploadedFile(f"detail-{index}.jpg", TINY_PNG_BYTES, content_type="image/png"),
+                original_filename=f"detail-{index}.jpg",
+                media_type=MemoirMedia.MediaType.IMAGE,
+                mime_type="image/png",
+                size=len(TINY_PNG_BYTES),
+            )
+
+        self.login()
+        response = self.client.get(reverse("memoir_detail", kwargs={"pk": memoir.pk}))
+        payload = app_payload(response)
+
+        self.assertEqual(len(payload["memoir"]["media"]), 60)
+        self.assertEqual(payload["memoir"]["mediaCount"], 65)
+        self.assertTrue(payload["mediaPagination"]["hasMore"])
+        self.assertEqual(payload["mediaPagination"]["nextPage"], 2)
+
+        api_response = self.client.get(f"{reverse('api_memoir_media', kwargs={'pk': memoir.pk})}?page=2")
+        api_payload = api_response.json()
+        self.assertEqual(len(api_payload["media"]), 5)
+        self.assertEqual(api_payload["mediaCount"], 65)
+        self.assertFalse(api_payload["pagination"]["hasMore"])
+
+        self.client.logout()
+        self.client.login(username="other", password="secret12345")
+        response = self.client.get(reverse("api_memoir_media", kwargs={"pk": memoir.pk}))
+        self.assertEqual(response.status_code, 404)
+
+        self.client.logout()
+        self.login()
+        memoir.soft_delete()
+        response = self.client.get(reverse("api_memoir_media", kwargs={"pk": memoir.pk}))
+        self.assertEqual(response.status_code, 404)
 
     def test_update_memoir_changes_fields_and_removes_media(self):
         self.login()
@@ -493,6 +764,27 @@ class MemoirViewTests(TestCase):
         response = self.client.get(reverse("memoir_update", kwargs={"pk": memoir.pk}))
         self.assertEqual(response.status_code, 404)
 
+    def test_api_delete_returns_fresh_stats(self):
+        self.login()
+        memoir = Memoir.objects.create(title="API delete", owner=self.user)
+        media = MemoirMedia.objects.create(
+            memoir=memoir,
+            file=SimpleUploadedFile("api-delete.jpg", TINY_PNG_BYTES, content_type="image/png"),
+            original_filename="api-delete.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/png",
+            size=len(TINY_PNG_BYTES),
+        )
+        media_path = Path(media.file.path)
+
+        response = self.client.post(reverse("api_memoir_delete", kwargs={"pk": memoir.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["stats"]["memoirs"], 0)
+        self.assertEqual(response.json()["stats"]["deletedMemoirs"], 1)
+        self.assertEqual(response.json()["stats"]["media"], 0)
+        self.assertTrue(media_path.exists())
+
     def test_restore_deleted_memoir_returns_it_to_active_views(self):
         self.login()
         memoir = Memoir.objects.create(title="可恢复", owner=self.user)
@@ -509,6 +801,9 @@ class MemoirViewTests(TestCase):
         response = self.client.post(reverse("api_memoir_restore", kwargs={"pk": memoir.pk}))
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["stats"]["memoirs"], 1)
+        self.assertEqual(response.json()["stats"]["deletedMemoirs"], 0)
+        self.assertEqual(response.json()["stats"]["media"], 1)
         memoir.refresh_from_db()
         self.assertIsNone(memoir.deleted_at)
         self.assertFalse(response.json()["memoir"]["isDeleted"])
@@ -544,6 +839,9 @@ class MemoirViewTests(TestCase):
         response = self.client.post(reverse("api_memoir_destroy", kwargs={"pk": memoir.pk}))
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["stats"]["memoirs"], 0)
+        self.assertEqual(response.json()["stats"]["deletedMemoirs"], 0)
+        self.assertEqual(response.json()["stats"]["media"], 0)
         self.assertFalse(Memoir.objects.filter(pk=memoir.pk).exists())
         self.assertFalse(MemoirMedia.objects.filter(pk=media.pk).exists())
         self.assertFalse(media_path.exists())

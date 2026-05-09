@@ -50,6 +50,10 @@ class Memoir(models.Model):
         verbose_name = "回忆"
         verbose_name_plural = "回忆"
         ordering = ["-memory_date", "-created_at"]
+        indexes = [
+            models.Index(fields=["owner", "deleted_at", "-memory_date", "-created_at"], name="memoir_owner_del_date_idx"),
+            models.Index(fields=["owner", "deleted_at", "mood"], name="memoir_owner_del_mood_idx"),
+        ]
 
     def __str__(self) -> str:
         return self.title
@@ -86,6 +90,9 @@ class MemoirMedia(models.Model):
         verbose_name = "媒体文件"
         verbose_name_plural = "媒体文件"
         ordering = ["uploaded_at", "id"]
+        indexes = [
+            models.Index(fields=["memoir", "media_type", "uploaded_at"], name="media_memoir_type_time_idx"),
+        ]
 
     def __str__(self) -> str:
         return self.original_filename

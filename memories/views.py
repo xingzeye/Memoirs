@@ -4,6 +4,8 @@ import base64
 import json
 import mimetypes
 import re
+import zipfile
+from collections import defaultdict
 from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
@@ -16,7 +18,8 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.core.exceptions import RequestDataTooBig, SuspiciousOperation
 from django.core.files.base import File
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, F, Q, Window
+from django.db.models.functions import RowNumber
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.http.multipartparser import MultiPartParserError
 from django.middleware.csrf import get_token
@@ -24,6 +27,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import content_disposition_header
+from django.utils.text import get_valid_filename
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods, require_POST
 
@@ -42,6 +46,12 @@ VIDEO_EXTENSIONS = {".m4v", ".mov", ".mp4", ".mpeg", ".webm"}
 BYTE_RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
 MEDIA_STREAM_CHUNK_SIZE = 64 * 1024
 THUMBNAIL_MAX_SIZE = (720, 720)
+BACKUP_FORMAT_VERSION = 1
+MEMOIR_PAGE_SIZE = 20
+MEMOIR_MAX_PAGE_SIZE = 50
+MEDIA_PAGE_SIZE = 60
+MEDIA_MAX_PAGE_SIZE = 100
+MEMOIR_PREVIEW_MEDIA_LIMIT = 3
 
 
 UPLOAD_FAILURE_MESSAGE = "视频或照片上传失败。文件可能太大，或服务器临时存储空间不足。请先压缩视频后再试。"
@@ -216,6 +226,9 @@ def app_routes() -> dict[str, str]:
         "memoirList": reverse("memoir_list"),
         "memoirCreate": reverse("memoir_create"),
         "mediaGallery": reverse("media_gallery"),
+        "mediaGalleryApi": reverse("api_media_gallery"),
+        "backup": reverse("backup"),
+        "exportBackup": reverse("memoir_export"),
         "loginPage": reverse("login"),
     }
     if settings.ALLOW_PUBLIC_REGISTRATION:
@@ -269,6 +282,103 @@ def render_app(
     )
 
 
+def positive_int_param(request: HttpRequest, name: str, default: int, maximum: int) -> int:
+    try:
+        value = int(request.GET.get(name, ""))
+    except (TypeError, ValueError):
+        return default
+    if value < 1:
+        return default
+    return min(value, maximum)
+
+
+def page_params(request: HttpRequest, default_size: int, max_size: int) -> tuple[int, int]:
+    return (
+        positive_int_param(request, "page", 1, 10_000),
+        positive_int_param(request, "pageSize", default_size, max_size),
+    )
+
+
+def paginate_items(queryset, page: int, page_size: int) -> tuple[list[object], dict[str, object]]:
+    offset = (page - 1) * page_size
+    items = list(queryset[offset : offset + page_size + 1])
+    has_more = len(items) > page_size
+    return items[:page_size], {
+        "page": page,
+        "pageSize": page_size,
+        "hasMore": has_more,
+        "nextPage": page + 1 if has_more else None,
+    }
+
+
+def archive_stats(user) -> dict[str, int]:
+    memoir_counts = Memoir.objects.filter(owner=user).aggregate(
+        memoirs=Count("id", filter=Q(deleted_at__isnull=True)),
+        deletedMemoirs=Count("id", filter=Q(deleted_at__isnull=False)),
+    )
+    media_counts = MemoirMedia.objects.filter(memoir__owner=user, memoir__deleted_at__isnull=True).aggregate(
+        media=Count("id"),
+        photos=Count("id", filter=Q(media_type=MemoirMedia.MediaType.IMAGE)),
+        videos=Count("id", filter=Q(media_type=MemoirMedia.MediaType.VIDEO)),
+    )
+    return {
+        "memoirs": int(memoir_counts["memoirs"] or 0),
+        "deletedMemoirs": int(memoir_counts["deletedMemoirs"] or 0),
+        "media": int(media_counts["media"] or 0),
+        "photos": int(media_counts["photos"] or 0),
+        "videos": int(media_counts["videos"] or 0),
+    }
+
+
+def normalized_sort(request: HttpRequest) -> str:
+    return "asc" if request.GET.get("sort") == "asc" else "desc"
+
+
+def memoir_ordering(sort: str) -> list[str]:
+    return ["memory_date", "created_at", "id"] if sort == "asc" else ["-memory_date", "-created_at", "-id"]
+
+
+def normalized_section(request: HttpRequest) -> str:
+    section = request.GET.get("section", "all").strip()
+    return section if section in {"all", "timeline", "location", "mood", "letter"} else "all"
+
+
+def apply_memoir_section(queryset, section: str):
+    if section == "timeline":
+        return queryset.filter(memory_date__isnull=False)
+    if section == "location":
+        return queryset.exclude(location="")
+    if section == "mood":
+        return queryset.exclude(mood="")
+    if section == "letter":
+        return queryset.exclude(story="")
+    return queryset
+
+
+def attach_preview_media(memoirs: list[Memoir]) -> None:
+    memoir_ids = [memoir.pk for memoir in memoirs]
+    if not memoir_ids:
+        return
+
+    preview_media = (
+        MemoirMedia.objects.filter(memoir_id__in=memoir_ids)
+        .annotate(
+            preview_rank=Window(
+                expression=RowNumber(),
+                partition_by=[F("memoir_id")],
+                order_by=[F("uploaded_at").asc(), F("id").asc()],
+            )
+        )
+        .filter(preview_rank__lte=MEMOIR_PREVIEW_MEDIA_LIMIT)
+        .order_by("memoir_id", "uploaded_at", "id")
+    )
+    grouped_media: dict[object, list[MemoirMedia]] = defaultdict(list)
+    for media in preview_media:
+        grouped_media[media.memoir_id].append(media)
+    for memoir in memoirs:
+        memoir.preview_media_items = grouped_media.get(memoir.pk, [])
+
+
 def serialize_media(request: HttpRequest, media: MemoirMedia, memoir: Memoir | None = None) -> dict[str, object]:
     thumbnail_url = (
         reverse("protected_media_thumbnail", kwargs={"media_id": media.id})
@@ -303,8 +413,16 @@ def serialize_media(request: HttpRequest, media: MemoirMedia, memoir: Memoir | N
     return payload
 
 
-def serialize_memoir(request: HttpRequest, memoir: Memoir) -> dict[str, object]:
-    media_items = list(memoir.media_items.all())
+def serialize_memoir(
+    request: HttpRequest,
+    memoir: Memoir,
+    media_items: list[MemoirMedia] | None = None,
+    media_count: int | None = None,
+) -> dict[str, object]:
+    if media_items is None:
+        media_items = list(memoir.media_items.all())
+    if media_count is None:
+        media_count = int(getattr(memoir, "media_total", len(media_items)) or 0)
     return {
         "id": str(memoir.pk),
         "title": memoir.title,
@@ -318,7 +436,7 @@ def serialize_memoir(request: HttpRequest, memoir: Memoir) -> dict[str, object]:
         "updatedAt": timezone.localtime(memoir.updated_at).isoformat(),
         "isDeleted": memoir.is_deleted,
         "deletedAt": timezone.localtime(memoir.deleted_at).isoformat() if memoir.deleted_at else "",
-        "mediaCount": len(media_items),
+        "mediaCount": media_count,
         "media": [serialize_media(request, media, memoir) for media in media_items],
         "urls": {
             "detail": reverse("memoir_detail", kwargs={"pk": memoir.pk}),
@@ -327,6 +445,7 @@ def serialize_memoir(request: HttpRequest, memoir: Memoir) -> dict[str, object]:
             "restore": reverse("memoir_restore", kwargs={"pk": memoir.pk}),
             "destroy": reverse("memoir_destroy", kwargs={"pk": memoir.pk}),
             "api": reverse("api_memoir_detail", kwargs={"pk": memoir.pk}),
+            "media": reverse("api_memoir_media", kwargs={"pk": memoir.pk}),
             "apiDelete": reverse("api_memoir_delete", kwargs={"pk": memoir.pk}),
             "apiRestore": reverse("api_memoir_restore", kwargs={"pk": memoir.pk}),
             "apiDestroy": reverse("api_memoir_destroy", kwargs={"pk": memoir.pk}),
@@ -334,15 +453,24 @@ def serialize_memoir(request: HttpRequest, memoir: Memoir) -> dict[str, object]:
     }
 
 
+def serialize_memoir_summary(request: HttpRequest, memoir: Memoir) -> dict[str, object]:
+    media_items = list(getattr(memoir, "preview_media_items", []))
+    media_count = int(getattr(memoir, "media_total", len(media_items)) or 0)
+    return serialize_memoir(request, memoir, media_items=media_items, media_count=media_count)
+
+
 def memoir_collection_payload(request: HttpRequest) -> dict[str, object]:
     query = request.GET.get("q", "").strip()
     mood = request.GET.get("mood", "").strip()
     showing_deleted = request.GET.get("deleted") == "1"
+    section = normalized_section(request)
+    sort = normalized_sort(request)
+    page, page_size = page_params(request, MEMOIR_PAGE_SIZE, MEMOIR_MAX_PAGE_SIZE)
 
     memoirs = Memoir.objects.filter(
         owner=request.user,
         deleted_at__isnull=not showing_deleted,
-    ).prefetch_related("media_items")
+    )
     if query:
         memoirs = memoirs.filter(
             Q(title__icontains=query)
@@ -352,6 +480,10 @@ def memoir_collection_payload(request: HttpRequest) -> dict[str, object]:
         )
     if mood:
         memoirs = memoirs.filter(mood=mood)
+    memoirs = apply_memoir_section(memoirs, section)
+    memoirs = memoirs.annotate(media_total=Count("media_items")).order_by(*memoir_ordering(sort))
+    paged_memoirs, pagination = paginate_items(memoirs, page, page_size)
+    attach_preview_media(paged_memoirs)
 
     mood_choices = list(
         Memoir.objects.filter(owner=request.user, deleted_at__isnull=not showing_deleted)
@@ -360,22 +492,16 @@ def memoir_collection_payload(request: HttpRequest) -> dict[str, object]:
         .values_list("mood", flat=True)
         .distinct()
     )
-    active_memoirs = Memoir.objects.filter(owner=request.user, deleted_at__isnull=True)
-    deleted_memoirs = Memoir.objects.filter(owner=request.user, deleted_at__isnull=False)
-    all_media = MemoirMedia.objects.filter(memoir__owner=request.user, memoir__deleted_at__isnull=True)
     return {
-        "memoirs": [serialize_memoir(request, memoir) for memoir in memoirs],
+        "memoirs": [serialize_memoir_summary(request, memoir) for memoir in paged_memoirs],
         "query": query,
         "activeMood": mood,
         "showingDeleted": showing_deleted,
+        "section": section,
+        "sort": sort,
+        "pagination": pagination,
         "moodChoices": mood_choices,
-        "stats": {
-            "memoirs": active_memoirs.count(),
-            "deletedMemoirs": deleted_memoirs.count(),
-            "media": all_media.count(),
-            "photos": all_media.filter(media_type=MemoirMedia.MediaType.IMAGE).count(),
-            "videos": all_media.filter(media_type=MemoirMedia.MediaType.VIDEO).count(),
-        },
+        "stats": archive_stats(request.user),
         "labels": {
             "edit": "修改",
             "delete": "删除",
@@ -385,7 +511,7 @@ def memoir_collection_payload(request: HttpRequest) -> dict[str, object]:
     }
 
 
-def media_gallery_payload(request: HttpRequest) -> dict[str, object]:
+def media_gallery_filters(request: HttpRequest) -> tuple[str, str, str]:
     media_type = request.GET.get("type", "").strip()
     if media_type not in {MemoirMedia.MediaType.IMAGE, MemoirMedia.MediaType.VIDEO}:
         media_type = ""
@@ -393,7 +519,11 @@ def media_gallery_payload(request: HttpRequest) -> dict[str, object]:
     if year and (not year.isdigit() or len(year) != 4):
         year = ""
     location = request.GET.get("location", "").strip()
+    return media_type, year, location
 
+
+def filtered_gallery_media(request: HttpRequest):
+    media_type, year, location = media_gallery_filters(request)
     base_media = MemoirMedia.objects.select_related("memoir").filter(
         memoir__owner=request.user,
         memoir__deleted_at__isnull=True,
@@ -406,21 +536,10 @@ def media_gallery_payload(request: HttpRequest) -> dict[str, object]:
     if location:
         media_items = media_items.filter(memoir__location=location)
     media_items = media_items.order_by("-memoir__memory_date", "-uploaded_at", "-id")
+    return base_media, media_items, media_type, year, location
 
-    year_choices = [
-        str(value)
-        for value in base_media.exclude(memoir__memory_date__isnull=True)
-        .order_by("-memoir__memory_date__year")
-        .values_list("memoir__memory_date__year", flat=True)
-        .distinct()
-    ]
-    location_choices = list(
-        base_media.exclude(memoir__location="")
-        .order_by("memoir__location")
-        .values_list("memoir__location", flat=True)
-        .distinct()
-    )
-    media_payload = [serialize_media(request, media) for media in media_items]
+
+def media_groups(media_payload: list[dict[str, object]]) -> list[dict[str, object]]:
     groups: list[dict[str, object]] = []
     group_index: dict[str, dict[str, object]] = {}
     for item in media_payload:
@@ -439,10 +558,32 @@ def media_gallery_payload(request: HttpRequest) -> dict[str, object]:
         group = group_index[group_key]
         group["count"] = int(group["count"]) + 1
         group["mediaIds"].append(item["id"])
+    return groups
+
+
+def media_gallery_payload(request: HttpRequest) -> dict[str, object]:
+    base_media, media_items, media_type, year, location = filtered_gallery_media(request)
+    page, page_size = page_params(request, MEDIA_PAGE_SIZE, MEDIA_MAX_PAGE_SIZE)
+    paged_media, pagination = paginate_items(media_items, page, page_size)
+    year_choices = [
+        str(value)
+        for value in base_media.exclude(memoir__memory_date__isnull=True)
+        .order_by("-memoir__memory_date__year")
+        .values_list("memoir__memory_date__year", flat=True)
+        .distinct()
+    ]
+    location_choices = list(
+        base_media.exclude(memoir__location="")
+        .order_by("memoir__location")
+        .values_list("memoir__location", flat=True)
+        .distinct()
+    )
+    media_payload = [serialize_media(request, media) for media in paged_media]
 
     return {
         "media": media_payload,
-        "groups": groups,
+        "groups": media_groups(media_payload),
+        "pagination": pagination,
         "filters": {
             "type": media_type,
             "year": year,
@@ -463,6 +604,140 @@ def media_gallery_payload(request: HttpRequest) -> dict[str, object]:
             "videos": media_items.filter(media_type=MemoirMedia.MediaType.VIDEO).count(),
         },
     }
+
+
+def paged_memoir_media(request: HttpRequest, memoir: Memoir) -> tuple[list[MemoirMedia], int, dict[str, object]]:
+    page, page_size = page_params(request, MEDIA_PAGE_SIZE, MEDIA_MAX_PAGE_SIZE)
+    media_items = memoir.media_items.order_by("uploaded_at", "id")
+    media_count = media_items.count()
+    paged_media, pagination = paginate_items(media_items, page, page_size)
+    return paged_media, media_count, pagination
+
+
+def memoir_media_payload(request: HttpRequest, memoir: Memoir) -> dict[str, object]:
+    media_items, media_count, pagination = paged_memoir_media(request, memoir)
+    return {
+        "media": [serialize_media(request, media, memoir) for media in media_items],
+        "mediaCount": media_count,
+        "pagination": pagination,
+    }
+
+
+def backup_page_payload(request: HttpRequest) -> dict[str, object]:
+    memoirs = Memoir.objects.filter(owner=request.user, deleted_at__isnull=True)
+    media_items = MemoirMedia.objects.filter(memoir__owner=request.user, memoir__deleted_at__isnull=True)
+    return {
+        "exportUrl": reverse("memoir_export"),
+        "stats": {
+            "memoirs": memoirs.count(),
+            "media": media_items.count(),
+            "photos": media_items.filter(media_type=MemoirMedia.MediaType.IMAGE).count(),
+            "videos": media_items.filter(media_type=MemoirMedia.MediaType.VIDEO).count(),
+        },
+    }
+
+
+def safe_backup_name(value: str, fallback: str, max_length: int = 80) -> str:
+    safe_name = get_valid_filename(value).strip("._- ")
+    if not safe_name:
+        safe_name = fallback
+    return safe_name[:max_length].strip("._- ") or fallback
+
+
+def iso_datetime(value) -> str:
+    return timezone.localtime(value).isoformat() if value else ""
+
+
+def backup_markdown(memoir: Memoir, media_records: list[dict[str, object]]) -> str:
+    lines = [
+        f"# {memoir.title}",
+        "",
+        f"- 日期：{memoir.memory_date.isoformat() if memoir.memory_date else '未记录'}",
+        f"- 地点：{memoir.location or '未记录'}",
+        f"- 心情：{memoir.mood or '未标注'}",
+        "",
+        "## 正文",
+        "",
+        memoir.story.strip() or "这段回忆还没有正文。",
+        "",
+        "## 媒体",
+        "",
+    ]
+    if media_records:
+        for media in media_records:
+            lines.append(f"- [{media['originalFilename']}](../{media['archivePath']})")
+    else:
+        lines.append("这段回忆没有媒体文件。")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_backup_zip(request: HttpRequest) -> tuple[bytes, str]:
+    now = timezone.localtime(timezone.now())
+    filename = f"memoirs-backup-{now.strftime('%Y%m%d-%H%M%S')}.zip"
+    memoirs = list(
+        Memoir.objects.filter(owner=request.user, deleted_at__isnull=True)
+        .prefetch_related("media_items")
+        .order_by("-memory_date", "-created_at")
+    )
+    backup_memoirs: list[dict[str, object]] = []
+    media_count = 0
+    buffer = BytesIO()
+
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for memoir in memoirs:
+            media_records: list[dict[str, object]] = []
+            for media in memoir.media_items.all():
+                source_path = media_file_path(media.file.name)
+                safe_filename = safe_backup_name(media.original_filename or Path(media.file.name).name, f"media-{media.id}")
+                archive_path = f"media/{memoir.pk}/{media.id}-{safe_filename}"
+                archive.write(source_path, archive_path)
+                media_count += 1
+                media_records.append(
+                    {
+                        "id": media.id,
+                        "originalFilename": media.original_filename,
+                        "mediaType": media.media_type,
+                        "mimeType": media.mime_type,
+                        "size": media.size,
+                        "uploadedAt": iso_datetime(media.uploaded_at),
+                        "archivePath": archive_path,
+                    }
+                )
+
+            date_prefix = memoir.memory_date.isoformat() if memoir.memory_date else "undated"
+            markdown_name = safe_backup_name(f"{date_prefix}-{memoir.title}-{memoir.pk}.md", f"{memoir.pk}.md", 150)
+            markdown_path = f"markdown/{markdown_name}"
+            archive.writestr(markdown_path, backup_markdown(memoir, media_records))
+            backup_memoirs.append(
+                {
+                    "id": str(memoir.pk),
+                    "title": memoir.title,
+                    "story": memoir.story,
+                    "memoryDate": memoir.memory_date.isoformat() if memoir.memory_date else "",
+                    "location": memoir.location,
+                    "mood": memoir.mood,
+                    "createdAt": iso_datetime(memoir.created_at),
+                    "updatedAt": iso_datetime(memoir.updated_at),
+                    "markdownPath": markdown_path,
+                    "media": media_records,
+                }
+            )
+
+        manifest = {
+            "formatVersion": BACKUP_FORMAT_VERSION,
+            "app": "Memoirs",
+            "exportedAt": now.isoformat(),
+            "username": request.user.get_username(),
+            "includeDeleted": False,
+            "memoirCount": len(backup_memoirs),
+            "mediaCount": media_count,
+        }
+        archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        archive.writestr("memoirs.json", json.dumps({"memoirs": backup_memoirs}, ensure_ascii=False, indent=2))
+
+    return buffer.getvalue(), filename
+
 
 def mobile_upload_item_payload(item: MobileUploadItem) -> dict[str, object]:
     return {
@@ -788,18 +1063,44 @@ def media_gallery(request: HttpRequest) -> HttpResponse:
 
 @login_required
 @ensure_csrf_cookie
+def backup(request: HttpRequest) -> HttpResponse:
+    return render_app(
+        request,
+        "memories/backup.html",
+        "backup",
+        backup_page_payload(request),
+    )
+
+
+@login_required
+@require_http_methods(["GET"])
+def memoir_export(request: HttpRequest) -> HttpResponse:
+    zip_bytes, filename = build_backup_zip(request)
+    response = HttpResponse(zip_bytes, content_type="application/zip")
+    response["Content-Disposition"] = content_disposition_header(True, filename)
+    response["Content-Length"] = str(len(zip_bytes))
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@login_required
+@ensure_csrf_cookie
 def memoir_detail(request: HttpRequest, pk) -> HttpResponse:
     memoir = get_object_or_404(
-        Memoir.objects.prefetch_related("media_items"),
+        Memoir,
         pk=pk,
         owner=request.user,
         deleted_at__isnull=True,
     )
+    media_items, media_count, media_pagination = paged_memoir_media(request, memoir)
     return render_app(
         request,
         "memories/memoir_detail.html",
         "detail",
-        {"memoir": serialize_memoir(request, memoir)},
+        {
+            "memoir": serialize_memoir(request, memoir, media_items=media_items, media_count=media_count),
+            "mediaPagination": media_pagination,
+        },
     )
 
 
@@ -1057,6 +1358,12 @@ def api_memoirs(request: HttpRequest) -> JsonResponse:
 
 
 @login_required
+@require_http_methods(["GET"])
+def api_media_gallery(request: HttpRequest) -> JsonResponse:
+    return JsonResponse(media_gallery_payload(request))
+
+
+@login_required
 @require_http_methods(["GET", "POST"])
 def api_memoir_detail(request: HttpRequest, pk) -> JsonResponse:
     memoir = get_object_or_404(
@@ -1098,11 +1405,18 @@ def api_memoir_detail(request: HttpRequest, pk) -> JsonResponse:
 
 
 @login_required
+@require_http_methods(["GET"])
+def api_memoir_media(request: HttpRequest, pk) -> JsonResponse:
+    memoir = get_object_or_404(Memoir, pk=pk, owner=request.user, deleted_at__isnull=True)
+    return JsonResponse(memoir_media_payload(request, memoir))
+
+
+@login_required
 @require_POST
 def api_memoir_delete(request: HttpRequest, pk) -> JsonResponse:
     memoir = get_object_or_404(Memoir, pk=pk, owner=request.user, deleted_at__isnull=True)
     memoir.soft_delete()
-    return JsonResponse({"ok": True, "redirect": reverse("memoir_list")})
+    return JsonResponse({"ok": True, "stats": archive_stats(request.user), "redirect": reverse("memoir_list")})
 
 
 @login_required
@@ -1110,7 +1424,7 @@ def api_memoir_delete(request: HttpRequest, pk) -> JsonResponse:
 def api_memoir_restore(request: HttpRequest, pk) -> JsonResponse:
     memoir = get_object_or_404(Memoir.objects.prefetch_related("media_items"), pk=pk, owner=request.user, deleted_at__isnull=False)
     memoir.restore()
-    return JsonResponse({"memoir": serialize_memoir(request, memoir), "redirect": reverse("memoir_list")})
+    return JsonResponse({"memoir": serialize_memoir(request, memoir), "stats": archive_stats(request.user), "redirect": reverse("memoir_list")})
 
 
 @login_required
@@ -1118,7 +1432,7 @@ def api_memoir_restore(request: HttpRequest, pk) -> JsonResponse:
 def api_memoir_destroy(request: HttpRequest, pk) -> JsonResponse:
     memoir = get_object_or_404(Memoir, pk=pk, owner=request.user, deleted_at__isnull=False)
     memoir.delete()
-    return JsonResponse({"ok": True, "redirect": reverse("memoir_list")})
+    return JsonResponse({"ok": True, "stats": archive_stats(request.user), "redirect": reverse("memoir_list")})
 
 
 @login_required

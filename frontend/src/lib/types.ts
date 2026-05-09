@@ -1,4 +1,4 @@
-export type AppPage = "auth" | "archive" | "detail" | "editor" | "media-gallery" | "mobile-upload";
+export type AppPage = "auth" | "archive" | "backup" | "detail" | "editor" | "media-gallery" | "mobile-upload";
 
 export type AppRoutes = {
   session?: string;
@@ -6,10 +6,13 @@ export type AppRoutes = {
   register?: string;
   logout?: string;
   memoirs?: string;
+  mediaGalleryApi?: string;
   mobileUploadSessions?: string;
   memoirList?: string;
   memoirCreate?: string;
   mediaGallery?: string;
+  backup?: string;
+  exportBackup?: string;
   loginPage?: string;
   registerPage?: string;
 };
@@ -45,6 +48,13 @@ export type MediaItem = {
   mood?: string;
 };
 
+export type Pagination = {
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  nextPage?: number | null;
+};
+
 export type Memoir = {
   id: string;
   title: string;
@@ -67,6 +77,7 @@ export type Memoir = {
     restore: string;
     destroy: string;
     api: string;
+    media: string;
     apiDelete: string;
     apiRestore: string;
     apiDestroy: string;
