@@ -1,12 +1,14 @@
 import { ArrowLeft, CalendarDays, Edit3, Heart, MapPin } from "lucide-react";
 import { useState } from "react";
-import type { AppSession, MediaItem, Memoir } from "../lib/types";
+import { apiJson } from "../lib/api";
+import type { AppSession, MediaItem, Memoir, Pagination } from "../lib/types";
 import { Brand } from "./Brand";
 import { MediaThumbnail } from "./MediaThumbnail";
 import { MediaPreviewModal } from "./MediaPreviewModal";
 
 type DetailPayload = {
   memoir?: Memoir;
+  mediaPagination?: Pagination;
 };
 
 type MemoirDetailScreenProps = {
@@ -27,9 +29,25 @@ function formatDate(memoir: Memoir) {
   });
 }
 
+function mergeMediaItems(current: MediaItem[], incoming: MediaItem[]) {
+  const seen = new Set(current.map((media) => media.id));
+  const merged = [...current];
+  for (const media of incoming) {
+    if (seen.has(media.id)) continue;
+    seen.add(media.id);
+    merged.push(media);
+  }
+  return merged;
+}
+
+const detailPaginationFallback: Pagination = { page: 1, pageSize: 60, hasMore: false, nextPage: null };
+
 export function MemoirDetailScreen({ session, payload, onLogout }: MemoirDetailScreenProps) {
   const memoir = payload.memoir;
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>(memoir?.media || []);
   const [preview, setPreview] = useState<MediaItem | null>(null);
+  const [pagination, setPagination] = useState<Pagination>(payload.mediaPagination || detailPaginationFallback);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   if (!memoir) {
     return (
@@ -44,6 +62,25 @@ export function MemoirDetailScreen({ session, payload, onLogout }: MemoirDetailS
         </section>
       </main>
     );
+  }
+  const currentMemoir = memoir;
+
+  async function loadMoreMedia() {
+    if (!pagination.hasMore || !pagination.nextPage || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("page", String(pagination.nextPage));
+      params.set("pageSize", String(pagination.pageSize || 60));
+      const data = await apiJson<{ media?: MediaItem[]; mediaCount?: number; pagination?: Pagination }>(
+        `${currentMemoir.urls.media}${params.toString() ? `?${params}` : ""}`,
+        session.csrfToken,
+      );
+      setMediaItems((current) => mergeMediaItems(current, data.media || []));
+      setPagination(data.pagination || detailPaginationFallback);
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   return (
@@ -83,14 +120,23 @@ export function MemoirDetailScreen({ session, payload, onLogout }: MemoirDetailS
               <h2>照片和视频</h2>
               <span>{memoir.mediaCount} 个文件</span>
             </div>
-            {memoir.media.length ? (
-              <div className="detail-media-grid">
-                {memoir.media.map((media) => (
-                  <button key={media.id} type="button" onClick={() => setPreview(media)} aria-label={`预览 ${media.name}`}>
-                    <MediaThumbnail media={media} />
-                  </button>
-                ))}
-              </div>
+            {mediaItems.length ? (
+              <>
+                <div className="detail-media-grid">
+                  {mediaItems.map((media) => (
+                    <button key={media.id} type="button" onClick={() => setPreview(media)} aria-label={`预览 ${media.name}`}>
+                      <MediaThumbnail media={media} />
+                    </button>
+                  ))}
+                </div>
+                {pagination.hasMore ? (
+                  <div className="load-more-row">
+                    <button className="quiet-button" type="button" onClick={loadMoreMedia} disabled={loadingMore}>
+                      {loadingMore ? "加载中..." : "加载更多"}
+                    </button>
+                  </div>
+                ) : null}
+              </>
             ) : (
               <p className="detail-empty">这段回忆还没有照片或视频。</p>
             )}

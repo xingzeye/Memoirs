@@ -33,6 +33,8 @@
 - 支持回忆列表中的图片/视频预览弹层。
 - 支持回忆列表首批图片缩略图在页面打开时通过 head preload 和 eager/high priority 提示主动加载。
 - 支持 `/memoirs/media/` 全站相册页，集中查看当前账号全部照片和视频；相册支持照片/视频、年份、地点筛选，按所属回忆日期分组，媒体格子不显示文字描述。
+- 支持 `/memoirs/backup/` 备份导出页，当前账号可下载未进入回收站的回忆 ZIP，包含结构化 JSON、可读 Markdown 和原始媒体文件。
+- 支持回忆库、全站相册和详情页媒体分页加载；列表每页 20 条回忆且仅返回最多 3 个预览媒体，相册和详情页媒体每页 60 个。
 - 媒体预览弹层提供下载原图/原视频按钮；相册媒体还可从预览弹层跳回所属回忆详情页。
 - 回忆库首页采用左侧深墨绿档案导航、顶部搜索筛选和紧凑时间线列表；统计区显示回忆、照片和视频数量。
 - 回忆库侧栏是可交互的客户端视图切换：地点、心情、信笺和媒体会筛选当前列表，回收站会加载已软删除回忆并提供恢复/永久删除；时间排序可切换升降序，视图按钮可切换列表/媒体密度。
@@ -100,6 +102,7 @@ E:\Memoirs
 │       ├── memoir_list.html         # 回忆列表页标题壳
 │       ├── memoir_detail.html       # 回忆详情页标题壳
 │       ├── memoir_form.html         # 新增/编辑回忆页标题壳
+│       ├── backup.html              # 备份导出页标题壳
 │       └── mobile_upload.html       # 手机上传页标题壳
 ├── frontend/                        # React/Vite 前端源码
 │   ├── package.json                 # 前端依赖与构建脚本
@@ -181,6 +184,7 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 | `templates/memories/memoir_list.html` | 回忆库标题壳和首批图片 head preload |
 | `templates/memories/memoir_detail.html` | 回忆详情标题壳 |
 | `templates/memories/memoir_form.html` | 新增/编辑标题壳 |
+| `templates/memories/backup.html` | 备份导出标题壳 |
 | `templates/memories/mobile_upload.html` | 手机上传标题壳 |
 | `frontend/src/components/` | 登录/注册、回忆库、全站相册、详情页、编辑器、手机上传和媒体预览组件 |
 | `frontend/src/lib/` | 初始上下文、CSRF、fetch API 和共享类型 |
@@ -233,8 +237,10 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 | `/api/auth/login/` | POST | 登录 |
 | `/api/auth/register/` | POST | 注册并登录 |
 | `/api/auth/logout/` | POST | 退出 |
-| `/api/memoirs/` | GET/POST | 列表/搜索/筛选，返回回忆、媒体、照片、视频和回收站统计，或创建回忆；`?deleted=1` 返回回收站 |
+| `/api/memoirs/` | GET/POST | 分页列表/搜索/筛选，返回回忆摘要、最多 3 个预览媒体、统计和分页信息，或创建回忆；`?deleted=1` 返回回收站 |
+| `/api/memoirs/media/` | GET | 全站相册 JSON 分页接口，支持 `type`、`year`、`location`、`page`、`pageSize` |
 | `/api/memoirs/<uuid>/` | GET/POST | 读取编辑数据，或保存修改 |
+| `/api/memoirs/<uuid>/media/` | GET | 回忆详情页媒体分页接口 |
 | `/api/memoirs/<uuid>/delete/` | POST | 将回忆移入回收站 |
 | `/api/memoirs/<uuid>/restore/` | POST | 从回收站恢复回忆 |
 | `/api/memoirs/<uuid>/destroy/` | POST | 永久删除回忆并清理媒体文件 |
@@ -398,7 +404,36 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 
 详情页由 `memoir_detail` 视图传入单条 `Memoir` 的序列化数据，React 渲染完整标题、日期、地点、心情、普通文本正文和全部照片/视频。媒体缩略图不显示文件名文字，点击后打开预览弹层，右侧整理区域提供编辑入口。
 
-全站相册页由 `media_gallery` 视图传入当前账号全部未进入回收站的 `MemoirMedia`，React 渲染 `/memoirs/media/`。相册支持 `type=image|video`、`year=YYYY`、`location=<地点>` 查询参数；年份和日期分组使用所属回忆的 `memory_date`，无日期媒体放入“未记录日期”分组。相册格子只展示图片/视频本身和必要的视频播放图标，不展示标题、正文或文件名描述；点击媒体打开预览弹层，弹层可下载原文件或跳回所属回忆详情页。
+全站相册页由 `media_gallery` 视图传入当前账号未进入回收站的第一页 `MemoirMedia`，React 渲染 `/memoirs/media/`。相册支持 `type=image|video`、`year=YYYY`、`location=<地点>` 查询参数；年份和日期分组使用所属回忆的 `memory_date`，无日期媒体放入“未记录日期”分组。相册格子只展示图片/视频本身和必要的视频播放图标，不展示标题、正文或文件名描述；点击媒体打开预览弹层，弹层可下载原文件或跳回所属回忆详情页。后续媒体通过 `/api/memoirs/media/` 按页加载，默认每页 60 个、最大 100 个。
+
+### 2.6.1 备份导出页
+
+文件：`templates/memories/backup.html`
+
+路由：
+
+```text
+/memoirs/backup/
+```
+
+备份页由 `backup` 视图注入当前账号未进入回收站的回忆和媒体统计，React 渲染 `BackupScreen`。页面只提供“下载备份 ZIP”入口，不提供上传、导入、恢复或覆盖现有数据的 UI，并明确提示回收站内容不会包含在备份内。
+
+下载路由：
+
+```text
+/memoirs/export/
+```
+
+`memoir_export` 使用 Python 标准库 `zipfile` 在内存中生成附件下载，ZIP 文件名为 `memoirs-backup-YYYYMMDD-HHMMSS.zip`。导出范围仅包含当前登录用户且 `deleted_at` 为空的回忆与媒体；其他用户和回收站内容不会进入备份。ZIP 结构如下：
+
+```text
+manifest.json
+memoirs.json
+markdown/<date-or-undated>-<safe-title>-<memoir_id>.md
+media/<memoir_id>/<media_id>-<safe-original-filename>
+```
+
+`manifest.json` 记录格式版本、导出时间、应用名、用户名、回忆数和媒体数；`memoirs.json` 保留回忆字段、创建/更新时间和媒体元数据；Markdown 面向人工阅读，包含标题、日期、地点、心情、正文和媒体相对链接。
 
 ### 2.7 新增/编辑回忆页
 
@@ -728,6 +763,8 @@ admin.site.index_title = "后台管理"
 | `/` | `memoir_list` | `memoir_list` | GET | 回忆列表首页 |
 | `/memoirs/` | `memoir_list_alt` | `memoir_list` | GET | 回忆列表备用路径 |
 | `/memoirs/media/` | `media_gallery` | `media_gallery` | GET | 当前账号全站媒体相册；支持 `type`、`year`、`location` 筛选 |
+| `/memoirs/backup/` | `backup` | `backup` | GET | 当前账号备份导出页，只展示下载入口和导出范围说明 |
+| `/memoirs/export/` | `memoir_export` | `memoir_export` | GET | 下载当前账号未进回收站回忆的 JSON、Markdown 和媒体 ZIP |
 | `/memoirs/new/` | `memoir_create` | `memoir_create` | GET/POST | 新增回忆 |
 | `/memoirs/<uuid:pk>/` | `memoir_detail` | `memoir_detail` | GET | 回忆详情 |
 | `/memoirs/<uuid:pk>/edit/` | `memoir_update` | `memoir_update` | GET/POST | 编辑回忆 |
@@ -739,6 +776,8 @@ admin.site.index_title = "后台管理"
 | `/mobile-upload/<str:token>/items/<int:item_id>/preview/` | `mobile_upload_item_preview` | `mobile_upload_item_preview` | GET | 手机上传临时/已入库文件预览 |
 | `/protected-media/<path:file_path>` | `protected_media` | `protected_media` | GET | 受保护媒体读取；`?download=1` 下载原文件 |
 | `/protected-media-thumbnails/<int:media_id>/` | `protected_media_thumbnail` | `protected_media_thumbnail` | GET | 受保护图片 WebP 缩略图 |
+| `/api/memoirs/media/` | `api_media_gallery` | `api_media_gallery` | GET | 全站媒体相册分页 JSON |
+| `/api/memoirs/<uuid:pk>/media/` | `api_memoir_media` | `api_memoir_media` | GET | 单条回忆媒体分页 JSON |
 
 除了登录、注册和后台外，核心回忆页面均要求登录。
 
@@ -906,10 +945,10 @@ icontains
 列表性能优化：
 
 ```python
-prefetch_related("media_items")
+Count("media_items")
 ```
 
-用于减少每条回忆读取媒体文件时的查询次数。
+列表接口不再一次序列化当前用户全部回忆和全部媒体。`/api/memoirs/` 支持 `page`、`pageSize`、`sort=desc|asc`、`section=all|timeline|location|mood|letter`，默认每页 20 条、最大 50 条；每条回忆只返回最多 3 个预览媒体，真实媒体数由 `mediaCount` 聚合计算。预览媒体用窗口函数按 `memoir_id` 取每条回忆前 3 个媒体，避免单条回忆照片/视频过多时拖慢列表。
 
 #### 3.7.6 新增视图 `memoir_create`
 
@@ -1791,11 +1830,13 @@ memories/tests.py
 - 注册成功后自动登录。
 - 创建回忆并上传媒体。
 - 列表页显示修改入口。
+- 回忆列表 API 默认分页，第二页无重复；列表只返回预览媒体但 `mediaCount` 保持真实总数。
 - 列表页媒体输出 eager/high priority 图片属性、首批图片 preload 和视频预加载属性。
 - 编辑回忆时修改字段、删除旧媒体、追加新媒体。
 - 普通删除回忆时只进入回收站并保留媒体文件，永久删除时清理媒体文件。
 - 受保护媒体只允许 owner 或 staff 访问。
-- 全站相册只返回当前用户且未进入回收站的媒体，并支持照片/视频、回忆年份、地点筛选。
+- 全站相册只返回当前用户且未进入回收站的媒体，并支持照片/视频、回忆年份、地点筛选和分页加载。
+- 详情页媒体首屏分页，后续媒体通过详情媒体 API 加载；其他用户和回收站回忆返回 404。
 - 受保护媒体支持原文件下载、合法 Range 返回 206、非法 Range 返回 416。
 - 受保护图片缩略图接口延续 owner/staff 权限控制。
 
@@ -2143,14 +2184,14 @@ ALLOW_PUBLIC_REGISTRATION=False
 适合在当前项目基础上继续扩展：
 
 - 分页。
-- 批量导入/导出。
+- 导入恢复。
 - 媒体压缩和缩略图。
 - 更完善的标签体系。
 - 按年份/月度归档。
 - 收藏或置顶。
 - 详情页评论、置顶或更多排版能力。
 - 富文本编辑。
-- 数据备份导出。
+- 定时备份或云端备份。
 - 对象存储替代本地 Volume。
 - 更细粒度的权限系统。
 

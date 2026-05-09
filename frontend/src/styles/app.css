@@ -336,6 +336,16 @@ select:focus,
   padding: 0 14px;
 }
 
+.load-more-row {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 4px;
+}
+
+.load-more-row .quiet-button {
+  min-width: 148px;
+}
+
 .icon-button {
   width: 38px;
   min-height: 38px;
@@ -861,6 +871,7 @@ select:focus,
   line-height: 1.55;
 }
 
+.archive-popover a,
 .archive-popover button {
   justify-self: start;
   min-height: 32px;
@@ -871,6 +882,15 @@ select:focus,
   padding: 0 10px;
   font-size: 0.82rem;
   font-weight: 900;
+}
+
+.archive-popover a {
+  display: inline-flex;
+  align-items: center;
+  border-color: rgba(31, 117, 105, 0.22);
+  background: var(--teal-soft);
+  color: var(--teal);
+  text-decoration: none;
 }
 
 .archive-control-row {
@@ -1545,6 +1565,84 @@ select:focus,
   box-shadow: 0 0 0 4px rgba(31, 117, 105, 0.1);
 }
 
+.backup-shell {
+  max-width: 1160px;
+}
+
+.backup-page {
+  display: grid;
+  gap: 18px;
+  border: 1px solid rgba(221, 216, 203, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.92);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.backup-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.backup-heading svg,
+.backup-grid svg {
+  color: var(--teal);
+}
+
+.backup-heading h1,
+.backup-card h2,
+.backup-grid h2 {
+  margin: 0;
+  color: var(--ink);
+}
+
+.backup-heading h1 {
+  font-size: clamp(2rem, 4vw, 3.15rem);
+  line-height: 1;
+}
+
+.backup-heading p,
+.backup-card p,
+.backup-grid p {
+  margin: 8px 0 0;
+  color: #65706b;
+  line-height: 1.7;
+}
+
+.backup-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid #e4ded3;
+  border-radius: 8px;
+  background: rgba(255, 255, 250, 0.72);
+  padding: 18px;
+}
+
+.backup-card-copy {
+  min-width: 0;
+}
+
+.backup-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.backup-grid article {
+  border: 1px solid #e4ded3;
+  border-radius: 8px;
+  background: #fffefa;
+  padding: 16px;
+}
+
+.backup-grid h2 {
+  margin-top: 10px;
+  font-size: 0.98rem;
+}
+
 .editor-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
@@ -1873,6 +1971,10 @@ select:focus,
     grid-template-columns: 1fr;
   }
 
+  .backup-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .auth-art {
     min-height: 46vh;
   }
@@ -1923,6 +2025,25 @@ select:focus,
   .archive-hero h1,
   .editor-heading h1 {
     font-size: 2.45rem;
+  }
+
+  .backup-page {
+    padding: 18px;
+  }
+
+  .backup-heading,
+  .backup-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .backup-card .primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .backup-grid {
+    grid-template-columns: 1fr;
   }
 
   .stat-strip {

@@ -12,6 +12,7 @@ import {
   Mail,
   MapPin,
   Plus,
+  Download,
   RotateCcw,
   Search,
   Settings,
@@ -19,7 +20,7 @@ import {
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { apiJson } from "../lib/api";
-import type { AppSession, MediaItem, Memoir } from "../lib/types";
+import type { AppSession, MediaItem, Memoir, Pagination } from "../lib/types";
 import { MediaThumbnail } from "./MediaThumbnail";
 import { MediaPreviewModal } from "./MediaPreviewModal";
 
@@ -36,6 +37,9 @@ type ArchivePayload = {
   query?: string;
   activeMood?: string;
   showingDeleted?: boolean;
+  section?: ArchiveSectionParam;
+  sort?: SortOrder;
+  pagination?: Pagination;
   moodChoices?: string[];
   stats?: ArchiveStats;
 };
@@ -53,16 +57,38 @@ const sidebarItems = [
   { label: "心情", icon: Heart },
   { label: "信笺", icon: Mail },
   { label: "媒体", icon: Images },
+  { label: "备份", icon: Download },
   { label: "回收站", icon: Trash2 },
 ];
 
 type SidebarSection = (typeof sidebarItems)[number]["label"];
 type SortOrder = "desc" | "asc";
+type ArchiveSectionParam = "all" | "timeline" | "location" | "mood" | "letter";
 type ViewMode = "timeline" | "media";
 type OpenPanel = "profile" | null;
+type MemoirActionResponse = {
+  ok?: boolean;
+  memoir?: Memoir;
+  stats?: ArchiveStats;
+};
+
+const ARCHIVE_PAGE_SIZE = 20;
+
+const sectionParams: Record<SidebarSection, ArchiveSectionParam> = {
+  记忆中的TA: "all",
+  时间线: "timeline",
+  地点: "location",
+  心情: "mood",
+  信笺: "letter",
+  媒体: "all",
+  备份: "all",
+  回收站: "all",
+};
+
+const defaultPagination: Pagination = { page: 1, pageSize: ARCHIVE_PAGE_SIZE, hasMore: false, nextPage: null };
 
 function countMemoirMedia(memoir: Memoir) {
-  return memoir.media.reduce(
+  const previewCounts = memoir.media.reduce(
     (counts, media) => {
       if (media.type === "video") counts.videos += 1;
       else counts.photos += 1;
@@ -71,13 +97,14 @@ function countMemoirMedia(memoir: Memoir) {
     },
     { media: 0, photos: 0, videos: 0 },
   );
+  return { ...previewCounts, media: memoir.mediaCount || previewCounts.media };
 }
 
 function deriveStats(stats: ArchiveStats | undefined, memoirs: Memoir[]): Required<ArchiveStats> {
   const mediaTotals = memoirs.reduce(
     (counts, memoir) => {
       const next = countMemoirMedia(memoir);
-      counts.media += next.media;
+      counts.media += memoir.mediaCount || next.media;
       counts.photos += next.photos;
       counts.videos += next.videos;
       return counts;
@@ -129,13 +156,19 @@ function deriveMoodChoices(memoirs: Memoir[]) {
 }
 
 function filterBySection(section: SidebarSection, memoirs: Memoir[]) {
-  if (section === "时间线") return memoirs.filter((memoir) => memoir.memoryDate);
-  if (section === "地点") return memoirs.filter((memoir) => memoir.location);
-  if (section === "心情") return memoirs.filter((memoir) => memoir.mood);
-  if (section === "信笺") return memoirs.filter((memoir) => memoir.story.trim());
   if (section === "媒体") return memoirs.filter((memoir) => memoir.mediaCount > 0);
-  if (section === "回收站") return memoirs;
   return memoirs;
+}
+
+function mergeMemoirs(current: Memoir[], incoming: Memoir[]) {
+  const seen = new Set(current.map((memoir) => memoir.id));
+  const merged = [...current];
+  for (const memoir of incoming) {
+    if (seen.has(memoir.id)) continue;
+    seen.add(memoir.id);
+    merged.push(memoir);
+  }
+  return merged;
 }
 
 function emptyCopy(section: SidebarSection) {
@@ -154,11 +187,14 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
   const [query, setQuery] = useState(payload.query || "");
   const [activeMood, setActiveMood] = useState(payload.activeMood || "");
   const [activeSection, setActiveSection] = useState<SidebarSection>("记忆中的TA");
-  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [sortOrder, setSortOrder] = useState<SortOrder>(payload.sort || "desc");
   const [viewMode, setViewMode] = useState<ViewMode>("timeline");
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
   const [preview, setPreview] = useState<MediaItem | null>(null);
   const [pendingAction, setPendingAction] = useState("");
+  const [pagination, setPagination] = useState<Pagination>(payload.pagination || defaultPagination);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [moodChoices, setMoodChoices] = useState(() => (payload.moodChoices?.length ? payload.moodChoices : deriveMoodChoices(payload.memoirs || [])));
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -166,42 +202,79 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
     return Array.from(new Set(moodChoices.map((mood) => mood.trim()).filter(Boolean)));
   }, [moodChoices]);
 
-  async function refresh(nextQuery = query, nextMood = activeMood, includeDeleted = activeSection === "回收站") {
+  async function refresh(options: {
+    nextQuery?: string;
+    nextMood?: string;
+    includeDeleted?: boolean;
+    section?: SidebarSection;
+    sort?: SortOrder;
+    page?: number;
+    append?: boolean;
+  } = {}) {
+    const nextQuery = options.nextQuery ?? query;
+    const nextMood = options.nextMood ?? activeMood;
+    const includeDeleted = options.includeDeleted ?? activeSection === "回收站";
+    const section = options.section ?? activeSection;
+    const sort = options.sort ?? sortOrder;
+    const page = options.page ?? 1;
+    const append = options.append ?? false;
     const params = new URLSearchParams();
     if (nextQuery) params.set("q", nextQuery);
     if (nextMood) params.set("mood", nextMood);
     if (includeDeleted) params.set("deleted", "1");
+    const sectionParam = includeDeleted ? "all" : sectionParams[section];
+    if (sectionParam !== "all") params.set("section", sectionParam);
+    if (sort !== "desc") params.set("sort", sort);
+    params.set("page", String(page));
+    params.set("pageSize", String(ARCHIVE_PAGE_SIZE));
     const url = `${session.routes.memoirs || "/api/memoirs/"}${params.toString() ? `?${params}` : ""}`;
-    const data = await apiJson<ArchivePayload>(url, session.csrfToken);
-    const nextMemoirs = data.memoirs || [];
-    setMemoirs(nextMemoirs);
-    setStats(deriveStats(data.stats, nextMemoirs));
-    setMoodChoices(data.moodChoices?.length ? data.moodChoices : deriveMoodChoices(nextMemoirs));
+    if (append) setLoadingMore(true);
+    else setRefreshing(true);
+    try {
+      const data = await apiJson<ArchivePayload>(url, session.csrfToken);
+      const nextMemoirs = data.memoirs || [];
+      setMemoirs((current) => (append ? mergeMemoirs(current, nextMemoirs) : nextMemoirs));
+      setStats(deriveStats(data.stats, append ? mergeMemoirs(memoirs, nextMemoirs) : nextMemoirs));
+      setPagination(data.pagination || defaultPagination);
+      setMoodChoices(data.moodChoices?.length ? data.moodChoices : deriveMoodChoices(nextMemoirs));
+    } finally {
+      if (append) setLoadingMore(false);
+      else setRefreshing(false);
+    }
   }
 
   async function submitSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const isTrashView = activeSection === "回收站";
     if (!isTrashView) setActiveSection("记忆中的TA");
-    await refresh(query, activeMood, isTrashView);
+    await refresh({ nextQuery: query, nextMood: activeMood, includeDeleted: isTrashView, section: isTrashView ? "回收站" : "记忆中的TA" });
   }
 
   async function chooseMood(mood: string) {
     const isTrashView = activeSection === "回收站";
     if (!isTrashView) setActiveSection("记忆中的TA");
     setActiveMood(mood);
-    await refresh(query, mood, isTrashView);
+    await refresh({ nextQuery: query, nextMood: mood, includeDeleted: isTrashView, section: isTrashView ? "回收站" : "记忆中的TA" });
   }
 
   async function chooseSection(section: SidebarSection) {
     setOpenPanel(null);
-    const wasTrashView = activeSection === "回收站";
+    if (section === "媒体") {
+      window.location.assign(session.routes.mediaGallery || "/memoirs/media/");
+      return;
+    }
+
+    if (section === "备份") {
+      window.location.assign(session.routes.backup || "/memoirs/backup/");
+      return;
+    }
+
     setActiveSection(section);
 
     if (section === "记忆中的TA") {
       setQuery("");
       setActiveMood("");
-      await refresh("", "");
+      await refresh({ nextQuery: "", nextMood: "", section });
       return;
     }
 
@@ -209,48 +282,31 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
       setQuery("");
       setActiveMood("");
       setViewMode("timeline");
-      await refresh("", "", true);
+      await refresh({ nextQuery: "", nextMood: "", includeDeleted: true, section });
       return;
-    }
-
-    if (wasTrashView) {
-      setQuery("");
-      setActiveMood("");
-      await refresh("", "", false);
     }
 
     if (section === "时间线") {
       setViewMode("timeline");
       setSortOrder("desc");
-      return;
     }
 
     if (section === "地点") {
       searchInputRef.current?.focus();
-      return;
     }
 
-    if (section === "媒体") {
-      window.location.assign(session.routes.mediaGallery || "/memoirs/media/");
-    }
+    await refresh({ nextQuery: query, nextMood: activeMood, includeDeleted: false, section, sort: section === "时间线" ? "desc" : sortOrder });
   }
 
   async function deleteMemoir(memoir: Memoir) {
     if (!window.confirm("确定将这段回忆移入回收站吗？照片和视频会保留，可以稍后恢复。")) return;
     setPendingAction(memoir.id);
     try {
-      await apiJson(memoir.urls.apiDelete, session.csrfToken, {});
+      const response = await apiJson<MemoirActionResponse>(memoir.urls.apiDelete, session.csrfToken, {});
       const nextMemoirs = memoirs.filter((item) => item.id !== memoir.id);
       setMemoirs(nextMemoirs);
       setMoodChoices(deriveMoodChoices(nextMemoirs));
-      const removed = countMemoirMedia(memoir);
-      setStats((current) => ({
-        memoirs: Math.max(current.memoirs - 1, 0),
-        media: Math.max(current.media - removed.media, 0),
-        photos: Math.max(current.photos - removed.photos, 0),
-        videos: Math.max(current.videos - removed.videos, 0),
-        deletedMemoirs: current.deletedMemoirs + 1,
-      }));
+      if (response.stats) setStats(deriveStats(response.stats, nextMemoirs));
     } finally {
       setPendingAction("");
     }
@@ -259,18 +315,11 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
   async function restoreMemoir(memoir: Memoir) {
     setPendingAction(memoir.id);
     try {
-      await apiJson(memoir.urls.apiRestore, session.csrfToken, {});
+      const response = await apiJson<MemoirActionResponse>(memoir.urls.apiRestore, session.csrfToken, {});
       const nextMemoirs = memoirs.filter((item) => item.id !== memoir.id);
-      const restored = countMemoirMedia(memoir);
       setMemoirs(nextMemoirs);
       setMoodChoices(deriveMoodChoices(nextMemoirs));
-      setStats((current) => ({
-        memoirs: current.memoirs + 1,
-        media: current.media + restored.media,
-        photos: current.photos + restored.photos,
-        videos: current.videos + restored.videos,
-        deletedMemoirs: Math.max(current.deletedMemoirs - 1, 0),
-      }));
+      if (response.stats) setStats(deriveStats(response.stats, nextMemoirs));
     } finally {
       setPendingAction("");
     }
@@ -280,21 +329,20 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
     if (!window.confirm("确定永久删除这段回忆吗？永久删除后无法恢复，并会清理照片和视频文件。")) return;
     setPendingAction(memoir.id);
     try {
-      await apiJson(memoir.urls.apiDestroy, session.csrfToken, {});
+      const response = await apiJson<MemoirActionResponse>(memoir.urls.apiDestroy, session.csrfToken, {});
       const nextMemoirs = memoirs.filter((item) => item.id !== memoir.id);
       setMemoirs(nextMemoirs);
       setMoodChoices(deriveMoodChoices(nextMemoirs));
-      setStats((current) => ({
-        ...current,
-        deletedMemoirs: Math.max(current.deletedMemoirs - 1, 0),
-      }));
+      if (response.stats) setStats(deriveStats(response.stats, nextMemoirs));
     } finally {
       setPendingAction("");
     }
   }
 
-  function toggleSortOrder() {
-    setSortOrder((current) => (current === "desc" ? "asc" : "desc"));
+  async function toggleSortOrder() {
+    const nextSort = sortOrder === "desc" ? "asc" : "desc";
+    setSortOrder(nextSort);
+    await refresh({ sort: nextSort, page: 1 });
   }
 
   function toggleViewMode() {
@@ -317,12 +365,14 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
     openMemoirDetail(memoir);
   }
 
+  async function loadMoreMemoirs() {
+    if (!pagination.hasMore || !pagination.nextPage || loadingMore) return;
+    await refresh({ page: pagination.nextPage, append: true });
+  }
+
   const visibleMemoirs = useMemo(() => {
-    return filterBySection(activeSection, memoirs).slice().sort((left, right) => {
-      const diff = memoirTimeValue(left) - memoirTimeValue(right);
-      return sortOrder === "desc" ? -diff : diff;
-    });
-  }, [activeSection, memoirs, sortOrder]);
+    return filterBySection(activeSection, memoirs);
+  }, [activeSection, memoirs]);
   const priorityImageIds = useMemo(() => {
     const ids = new Set<number>();
     for (const memoir of memoirs) {
@@ -411,6 +461,7 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
               <div className="archive-popover" role="status">
                 <strong>{session.user?.username || "当前账号"}</strong>
                 <p>私人回忆库已登录。</p>
+                <a href={session.routes.backup || "/memoirs/backup/"}>备份导出</a>
                 <button type="button" onClick={onLogout}>
                   退出登录
                 </button>
@@ -443,113 +494,122 @@ export function ArchiveScreen({ session, payload, onLogout }: ArchiveScreenProps
         </section>
 
         {visibleMemoirs.length ? (
-          <section className={`archive-timeline ${viewMode === "media" ? "media-view" : ""}${isTrashView ? " trash-view" : ""}`} aria-label="回忆列表">
-            {visibleMemoirs.map((memoir) => {
-              const parts = dateParts(memoir);
-              const mediaSlots = memoir.media.slice(0, viewMode === "media" ? 3 : 2);
-              const rowClassName = `timeline-row media-count-${mediaSlots.length}${mediaSlots.length ? "" : " no-media"}${isTrashView ? " trash-row" : ""}`;
-              return (
-                <article
-                  className={rowClassName}
-                  key={memoir.id}
-                  tabIndex={isTrashView ? -1 : 0}
-                  onClick={() => {
-                    if (!isTrashView) openMemoirDetail(memoir);
-                  }}
-                  onKeyDown={(event) => handleRowKeyDown(event, memoir)}
-                >
-                  <time className="timeline-date" dateTime={memoir.memoryDate || undefined}>
-                    <span>{parts.year}</span>
-                    <strong>{parts.day}</strong>
-                    <small>{parts.week}</small>
-                  </time>
+          <>
+            <section className={`archive-timeline ${viewMode === "media" ? "media-view" : ""}${isTrashView ? " trash-view" : ""}`} aria-label="回忆列表" aria-busy={refreshing}>
+              {visibleMemoirs.map((memoir) => {
+                const parts = dateParts(memoir);
+                const mediaSlots = memoir.media.slice(0, viewMode === "media" ? 3 : 2);
+                const rowClassName = `timeline-row media-count-${mediaSlots.length}${mediaSlots.length ? "" : " no-media"}${isTrashView ? " trash-row" : ""}`;
+                return (
+                  <article
+                    className={rowClassName}
+                    key={memoir.id}
+                    tabIndex={isTrashView ? -1 : 0}
+                    onClick={() => {
+                      if (!isTrashView) openMemoirDetail(memoir);
+                    }}
+                    onKeyDown={(event) => handleRowKeyDown(event, memoir)}
+                  >
+                    <time className="timeline-date" dateTime={memoir.memoryDate || undefined}>
+                      <span>{parts.year}</span>
+                      <strong>{parts.day}</strong>
+                      <small>{parts.week}</small>
+                    </time>
 
-                  {mediaSlots.length ? (
-                    <div className="timeline-media-strip">
-                      {mediaSlots.map((media) => (
-                        <button
-                          key={media.id}
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setPreview(media);
-                          }}
-                          aria-label={`预览 ${media.name}`}
-                        >
-                          <MediaThumbnail media={media} eager={media.type === "image" && priorityImageIds.has(media.id)} />
-                        </button>
-                      ))}
+                    {mediaSlots.length ? (
+                      <div className="timeline-media-strip">
+                        {mediaSlots.map((media) => (
+                          <button
+                            key={media.id}
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setPreview(media);
+                            }}
+                            aria-label={`预览 ${media.name}`}
+                          >
+                            <MediaThumbnail media={media} eager={media.type === "image" && priorityImageIds.has(media.id)} />
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <div className="timeline-copy">
+                      <h2>{memoir.title}</h2>
+                      <p>{memoir.excerpt || "这段回忆还没有正文，先把照片和日期替你保存好。"}</p>
                     </div>
-                  ) : null}
 
-                  <div className="timeline-copy">
-                    <h2>{memoir.title}</h2>
-                    <p>{memoir.excerpt || "这段回忆还没有正文，先把照片和日期替你保存好。"}</p>
-                  </div>
+                    <div className={`timeline-location${memoir.location ? "" : " muted"}`}>
+                      <span>{memoir.location || "未记录地点"}</span>
+                    </div>
 
-                  <div className={`timeline-location${memoir.location ? "" : " muted"}`}>
-                    <span>{memoir.location || "未记录地点"}</span>
-                  </div>
+                    <div className="timeline-mood">{memoir.mood ? <span className={moodClassName(memoir.mood)}>{memoir.mood}</span> : <span className="mood-chip muted">未标注</span>}</div>
 
-                  <div className="timeline-mood">{memoir.mood ? <span className={moodClassName(memoir.mood)}>{memoir.mood}</span> : <span className="mood-chip muted">未标注</span>}</div>
+                    <div className="timeline-count" aria-label={`${memoir.mediaCount} 个媒体`}>
+                      <Image size={14} />
+                      <span>{memoir.mediaCount}</span>
+                    </div>
 
-                  <div className="timeline-count" aria-label={`${memoir.mediaCount} 个媒体`}>
-                    <Image size={14} />
-                    <span>{memoir.mediaCount}</span>
-                  </div>
-
-                  <div className="timeline-actions">
-                    {isTrashView ? (
-                      <>
-                        <button
-                          className="timeline-icon-button restore"
-                          type="button"
-                          aria-label="恢复"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            restoreMemoir(memoir);
-                          }}
-                          disabled={pendingAction === memoir.id}
-                        >
-                          <RotateCcw size={15} />
-                        </button>
-                        <button
-                          className="timeline-icon-button danger"
-                          type="button"
-                          aria-label="永久删除"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            destroyMemoir(memoir);
-                          }}
-                          disabled={pendingAction === memoir.id}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <a className="timeline-icon-button" href={memoir.urls.edit} aria-label="修改" onClick={(event) => event.stopPropagation()}>
-                          <Edit3 size={15} />
-                        </a>
-                        <button
-                          className="timeline-icon-button danger"
-                          type="button"
-                          aria-label="移入回收站"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            deleteMemoir(memoir);
-                          }}
-                          disabled={pendingAction === memoir.id}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </article>
-              );
-            })}
-          </section>
+                    <div className="timeline-actions">
+                      {isTrashView ? (
+                        <>
+                          <button
+                            className="timeline-icon-button restore"
+                            type="button"
+                            aria-label="恢复"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              restoreMemoir(memoir);
+                            }}
+                            disabled={pendingAction === memoir.id}
+                          >
+                            <RotateCcw size={15} />
+                          </button>
+                          <button
+                            className="timeline-icon-button danger"
+                            type="button"
+                            aria-label="永久删除"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              destroyMemoir(memoir);
+                            }}
+                            disabled={pendingAction === memoir.id}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <a className="timeline-icon-button" href={memoir.urls.edit} aria-label="修改" onClick={(event) => event.stopPropagation()}>
+                            <Edit3 size={15} />
+                          </a>
+                          <button
+                            className="timeline-icon-button danger"
+                            type="button"
+                            aria-label="移入回收站"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              deleteMemoir(memoir);
+                            }}
+                            disabled={pendingAction === memoir.id}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+            {pagination.hasMore ? (
+              <div className="load-more-row">
+                <button className="quiet-button" type="button" onClick={loadMoreMemoirs} disabled={loadingMore}>
+                  {loadingMore ? "加载中..." : "加载更多"}
+                </button>
+              </div>
+            ) : null}
+          </>
         ) : (
           <section className="archive-empty-state">
             <CalendarDays size={30} />

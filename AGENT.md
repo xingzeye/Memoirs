@@ -11,6 +11,8 @@
 - 2026-05-06：受保护媒体支持 `Range` 分段读取、私有缓存头和 `?download=1` 原文件下载；图片缩略图通过 `/protected-media-thumbnails/<media_id>/` 按需生成 WebP。
 - 2026-05-07：新增真正的回收站；普通删除只写入 `Memoir.deleted_at` 并保留媒体，回收站支持恢复和永久删除，永久删除才级联清理媒体文件。
 - 2026-05-07：升级全站相册；`/memoirs/media/` 支持照片/视频、回忆年份、地点筛选，按所属回忆日期分组，预览弹层可跳回所属回忆。
+- 2026-05-09：新增备份导出 V1；`/memoirs/backup/` 提供当前账号正常回忆的 ZIP 下载入口，`/memoirs/export/` 导出 JSON、Markdown 和原始媒体文件，不包含回收站内容且不提供导入恢复。
+- 2026-05-09：新增分页与媒体懒加载；回忆库每页 20 条且只返回最多 3 个预览媒体，相册和详情页媒体每页 60 个，通过“加载更多”继续追加。
 - 用户可见页面已切换为 React/Vite 前端体验层，Django Template 现在主要负责输出 `#memoirs-root` 和初始 JSON 上下文。
 - React 源码位于 `frontend/`，构建产物输出到 `static/frontend/app.js` 与 `static/frontend/app.css`。
 - 当前视觉方向是“纪念 TA 的高端私人回忆档案”：文案使用“TA”“旧时光”“回忆”“私密保存”，不要在 UI 中直接放大“前任”。
@@ -90,7 +92,8 @@
 │   └── memories/
 │       ├── memoir_list.html
 │       ├── memoir_detail.html
-│       └── memoir_form.html
+│       ├── memoir_form.html
+│       └── backup.html
 ├── frontend/                # React/Vite 源码
 ├── static/
 │   ├── frontend/            # React/Vite 构建产物
@@ -179,13 +182,14 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - 支持按标题、正文、地点、心情标签搜索。
 - 支持按已有心情标签筛选。
 - 使用左侧档案栏和紧凑时间线行展示日期、真实媒体缩略图、标题摘要、地点、心情、媒体数、编辑和移入回收站操作；行主体点击进入详情页。
-- 侧栏地点/心情/信笺是客户端筛选视图；媒体入口跳转到全站相册页；回收站会拉取已软删除回忆并显示恢复/永久删除操作；时间排序切换升降序，视图按钮切换列表与媒体密度。
+- 侧栏地点/心情/信笺走服务端 section 分页筛选；媒体入口跳转到全站相册页；回收站会拉取已软删除回忆并显示恢复/永久删除操作；时间排序切换升降序，视图按钮切换列表与媒体密度。
 - 展示图片和视频缩略内容。
 - 打开列表页时会主动加载首批图片，减少点击查看前的等待。
 - 点击媒体可以打开前端预览弹层。
 - 预览弹层不显示文件名正文，提供下载原图/原视频按钮。
 - 全站相册媒体项包含所属回忆标题、详情 URL、回忆日期、地点和心情；相册按所属回忆日期分组，无日期进入“未记录日期”。
-- 点击回忆行主体会打开 `/memoirs/<uuid>/` 详情页，集中展示完整正文和全部媒体。
+- 侧栏和账号菜单提供备份导出入口；备份只下载当前账号未进入回收站的回忆、Markdown、JSON 和原始媒体 ZIP，不提供导入功能。
+- 点击回忆行主体会打开 `/memoirs/<uuid>/` 详情页，集中展示完整正文，并分页加载该回忆的照片和视频。
 
 ### 新增与编辑回忆
 
@@ -258,6 +262,8 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - `/`：回忆列表，名称 `memoir_list`
 - `/memoirs/`：回忆列表备用路径，名称 `memoir_list_alt`
 - `/memoirs/media/`：全站媒体相册，名称 `media_gallery`，支持 `type=image|video`、`year=YYYY`、`location=<地点>`
+- `/memoirs/backup/`：备份导出页，名称 `backup`
+- `/memoirs/export/`：备份 ZIP 下载，名称 `memoir_export`
 - `/memoirs/new/`：新增回忆，名称 `memoir_create`
 - `/memoirs/<uuid:pk>/`：回忆详情，名称 `memoir_detail`
 - `/memoirs/<uuid:pk>/edit/`：编辑回忆，名称 `memoir_update`
@@ -266,6 +272,8 @@ memoirs/<memoir_id>/<uuid>-<safe_filename>
 - `/memoirs/<uuid:pk>/destroy/`：永久删除回忆并清理媒体文件，名称 `memoir_destroy`
 - `/protected-media/<path:file_path>`：受保护媒体读取和原文件下载，名称 `protected_media`
 - `/protected-media-thumbnails/<int:media_id>/`：受保护图片 WebP 缩略图，名称 `protected_media_thumbnail`
+- `/api/memoirs/media/`：全站媒体分页 JSON，名称 `api_media_gallery`
+- `/api/memoirs/<uuid:pk>/media/`：单条回忆媒体分页 JSON，名称 `api_memoir_media`
 
 ## 管理后台
 

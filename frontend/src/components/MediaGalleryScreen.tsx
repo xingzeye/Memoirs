@@ -1,6 +1,7 @@
 import { ArrowLeft, CalendarDays, Images, MapPin, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { AppSession, MediaItem } from "../lib/types";
+import { apiJson } from "../lib/api";
+import type { AppSession, MediaItem, Pagination } from "../lib/types";
 import { Brand } from "./Brand";
 import { MediaPreviewModal } from "./MediaPreviewModal";
 import { MediaThumbnail } from "./MediaThumbnail";
@@ -33,6 +34,7 @@ type MediaGalleryPayload = {
     photos?: number;
     videos?: number;
   };
+  pagination?: Pagination;
 };
 
 type MediaGalleryScreenProps = {
@@ -64,14 +66,29 @@ function deriveGroups(mediaItems: MediaItem[]): GalleryGroup[] {
   return groups;
 }
 
+function mergeMediaItems(current: MediaItem[], incoming: MediaItem[]) {
+  const seen = new Set(current.map((media) => media.id));
+  const merged = [...current];
+  for (const media of incoming) {
+    if (seen.has(media.id)) continue;
+    seen.add(media.id);
+    merged.push(media);
+  }
+  return merged;
+}
+
+const galleryPaginationFallback: Pagination = { page: 1, pageSize: 60, hasMore: false, nextPage: null };
+
 export function MediaGalleryScreen({ session, payload, onLogout }: MediaGalleryScreenProps) {
-  const mediaItems = payload.media || [];
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>(payload.media || []);
   const [preview, setPreview] = useState<MediaItem | null>(null);
+  const [pagination, setPagination] = useState<Pagination>(payload.pagination || galleryPaginationFallback);
+  const [loadingMore, setLoadingMore] = useState(false);
   const stats = payload.stats || { media: mediaItems.length, photos: 0, videos: 0 };
   const filters = payload.filters || {};
   const filterOptions = payload.filterOptions || {};
   const mediaById = useMemo(() => new Map(mediaItems.map((media) => [media.id, media])), [mediaItems]);
-  const groups = useMemo(() => payload.groups?.length ? payload.groups : deriveGroups(mediaItems), [mediaItems, payload.groups]);
+  const groups = useMemo(() => deriveGroups(mediaItems), [mediaItems]);
   const hasActiveFilters = Boolean(filters.type || filters.year || filters.location);
 
   function galleryUrl(nextFilters: GalleryFilters = {}) {
@@ -88,6 +105,25 @@ export function MediaGalleryScreen({ session, payload, onLogout }: MediaGalleryS
 
   function chooseFilter(nextFilters: GalleryFilters) {
     window.location.assign(galleryUrl(nextFilters));
+  }
+
+  async function loadMoreMedia() {
+    if (!pagination.hasMore || !pagination.nextPage || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams();
+      if (filters.type) params.set("type", filters.type);
+      if (filters.year) params.set("year", filters.year);
+      if (filters.location) params.set("location", filters.location);
+      params.set("page", String(pagination.nextPage));
+      params.set("pageSize", String(pagination.pageSize || 60));
+      const base = session.routes.mediaGalleryApi || "/api/memoirs/media/";
+      const data = await apiJson<MediaGalleryPayload>(`${base}${params.toString() ? `?${params}` : ""}`, session.csrfToken);
+      setMediaItems((current) => mergeMediaItems(current, data.media || []));
+      setPagination(data.pagination || galleryPaginationFallback);
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   return (
@@ -151,27 +187,36 @@ export function MediaGalleryScreen({ session, payload, onLogout }: MediaGalleryS
         </section>
 
         {mediaItems.length ? (
-          <div className="media-gallery-groups" aria-label="全部照片和视频">
-            {groups.map((group, groupIndex) => {
-              const groupMedia = group.mediaIds.map((id) => mediaById.get(id)).filter((media): media is MediaItem => Boolean(media));
-              if (!groupMedia.length) return null;
-              return (
-                <section className="media-gallery-group" key={group.key}>
-                  <header>
-                    <h2>{group.label}</h2>
-                    <span>{group.count} 个文件</span>
-                  </header>
-                  <div className="media-gallery-grid">
-                    {groupMedia.map((media, index) => (
-                      <button key={media.id} type="button" onClick={() => setPreview(media)} aria-label={`预览 ${media.name}`}>
-                        <MediaThumbnail media={media} eager={groupIndex === 0 && index < 4} />
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              );
-            })}
-          </div>
+          <>
+            <div className="media-gallery-groups" aria-label="全部照片和视频">
+              {groups.map((group, groupIndex) => {
+                const groupMedia = group.mediaIds.map((id) => mediaById.get(id)).filter((media): media is MediaItem => Boolean(media));
+                if (!groupMedia.length) return null;
+                return (
+                  <section className="media-gallery-group" key={group.key}>
+                    <header>
+                      <h2>{group.label}</h2>
+                      <span>{group.count} 个文件</span>
+                    </header>
+                    <div className="media-gallery-grid">
+                      {groupMedia.map((media, index) => (
+                        <button key={media.id} type="button" onClick={() => setPreview(media)} aria-label={`预览 ${media.name}`}>
+                          <MediaThumbnail media={media} eager={groupIndex === 0 && index < 4} />
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+            {pagination.hasMore ? (
+              <div className="load-more-row">
+                <button className="quiet-button" type="button" onClick={loadMoreMedia} disabled={loadingMore}>
+                  {loadingMore ? "加载中..." : "加载更多"}
+                </button>
+              </div>
+            ) : null}
+          </>
         ) : (
           <section className="archive-empty-state">
             <Images size={30} />
