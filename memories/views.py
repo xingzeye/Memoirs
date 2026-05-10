@@ -17,7 +17,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.exceptions import RequestDataTooBig, SuspiciousOperation
-from django.core.files.base import ContentFile, File
+from django.core.files.base import File
 from django.db import transaction
 from django.db.models import Count, F, Q, Window
 from django.db.models.functions import RowNumber
@@ -58,6 +58,27 @@ BACKUP_MEDIA_COMPRESSION = zipfile.ZIP_STORED
 
 
 UPLOAD_FAILURE_MESSAGE = "视频或照片上传失败。文件可能太大，或服务器临时存储空间不足。请先压缩视频后再试。"
+
+
+class BackupZipMemberFile(File):
+    def __init__(self, file, name: str, size: int):
+        super().__init__(file, name=name)
+        self._size = size
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    def chunks(self, chunk_size: int | None = None):
+        chunk_size = chunk_size or self.DEFAULT_CHUNK_SIZE
+        while True:
+            data = self.file.read(chunk_size)
+            if not data:
+                break
+            yield data
+
+    def multiple_chunks(self, chunk_size: int | None = None) -> bool:
+        return self.size > (chunk_size or self.DEFAULT_CHUNK_SIZE)
 
 
 def wants_json(request: HttpRequest) -> bool:
@@ -883,6 +904,7 @@ def prepared_backup_memoirs(archive: zipfile.ZipFile, memoirs_payload: object) -
                     "storageFilename": storage_filename,
                     "mediaType": media_type,
                     "mimeType": mime_type,
+                    "fileSize": media_info.file_size,
                 }
             )
 
@@ -899,27 +921,68 @@ def prepared_backup_memoirs(archive: zipfile.ZipFile, memoirs_payload: object) -
     return prepared
 
 
+def seek_to_start(file_obj) -> bool:
+    try:
+        file_obj.seek(0)
+    except (AttributeError, OSError, ValueError):
+        return False
+    return True
+
+
+def backup_upload_source(upload):
+    source = getattr(upload, "file", upload)
+    if seek_to_start(source):
+        return source, None
+
+    temporary_source = SpooledTemporaryFile(max_size=BACKUP_ZIP_MEMORY_LIMIT, mode="w+b")
+    try:
+        for chunk in upload.chunks(chunk_size=MEDIA_STREAM_CHUNK_SIZE):
+            temporary_source.write(chunk)
+        temporary_source.seek(0)
+    except Exception:
+        temporary_source.close()
+        raise
+    return temporary_source, temporary_source
+
+
+def save_backup_media_from_archive(
+    archive: zipfile.ZipFile,
+    memoir: Memoir,
+    media_record: dict[str, object],
+) -> MemoirMedia:
+    file_size = int(media_record["fileSize"])
+    with archive.open(str(media_record["archivePath"]), "r") as member_file:
+        media = MemoirMedia(
+            memoir=memoir,
+            original_filename=str(media_record["originalFilename"]),
+            media_type=str(media_record["mediaType"]),
+            mime_type=str(media_record["mimeType"]),
+            size=file_size,
+        )
+        zip_member_file = BackupZipMemberFile(member_file, str(media_record["storageFilename"]), file_size)
+        media.file.save(str(media_record["storageFilename"]), zip_member_file, save=False)
+        media.size = file_size
+        media.save()
+        return media
+
+
 def import_backup_zip(user, upload) -> dict[str, int]:
     if upload is None:
         raise ValueError("请选择要导入的备份 ZIP 文件。")
 
-    try:
-        zip_bytes = upload.read()
-    except Exception as exc:
-        raise ValueError("无法读取上传的备份文件。") from exc
-    if not zip_bytes:
+    if getattr(upload, "size", None) == 0:
         raise ValueError("上传的备份文件是空的。")
 
+    zip_source = None
+    temporary_source = None
     try:
-        with zipfile.ZipFile(BytesIO(zip_bytes), "r") as archive:
+        zip_source, temporary_source = backup_upload_source(upload)
+        with zipfile.ZipFile(zip_source, "r") as archive:
             manifest = read_backup_json(archive, "manifest.json")
             if manifest.get("app") != "Memoirs" or manifest.get("formatVersion") != BACKUP_FORMAT_VERSION:
                 raise ValueError("请上传由本应用导出的备份 ZIP。")
             memoirs_payload = read_backup_json(archive, "memoirs.json")
             prepared = prepared_backup_memoirs(archive, memoirs_payload.get("memoirs"))
-            bad_member = archive.testzip()
-            if bad_member:
-                raise ValueError(f"备份文件已损坏：{bad_member}")
 
             imported_memoirs = 0
             imported_media = 0
@@ -936,20 +999,17 @@ def import_backup_zip(user, upload) -> dict[str, int]:
                     imported_memoirs += 1
 
                     for media_record in record["media"]:
-                        media_bytes = archive.read(media_record["archivePath"])
-                        media = MemoirMedia(
-                            memoir=memoir,
-                            original_filename=media_record["originalFilename"],
-                            media_type=media_record["mediaType"],
-                            mime_type=media_record["mimeType"],
-                            size=len(media_bytes),
-                        )
-                        media.file.save(media_record["storageFilename"], ContentFile(media_bytes), save=False)
-                        media.size = len(media_bytes)
-                        media.save()
+                        save_backup_media_from_archive(archive, memoir, media_record)
                         imported_media += 1
     except zipfile.BadZipFile as exc:
         raise ValueError("请上传有效的备份 ZIP 文件。") from exc
+    except EOFError as exc:
+        raise ValueError("备份 ZIP 已损坏或无法读取。") from exc
+    except OSError as exc:
+        raise ValueError("服务器保存备份媒体失败，可能是云端媒体目录不可写或存储空间不足。") from exc
+    finally:
+        if temporary_source is not None:
+            temporary_source.close()
 
     return {"memoirs": imported_memoirs, "media": imported_media}
 

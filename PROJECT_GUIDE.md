@@ -441,7 +441,7 @@ media/<memoir_id>/<media_id>-<safe-original-filename>
 /memoirs/import/
 ```
 
-`memoir_import` 只接受 POST 上传字段 `backup`。后端会校验 `manifest.json` 的应用名和格式版本，读取 `memoirs.json` 与 `media/*` 原始文件，并在一个事务中导入：若 ZIP 损坏、格式不匹配或引用的媒体缺失，本次导入会返回错误且不创建任何回忆。导入时不会复用备份里的旧 UUID，避免覆盖或冲突。
+`memoir_import` 只接受 POST 上传字段 `backup`。后端会校验 `manifest.json` 的应用名和格式版本，读取 `memoirs.json` 与 `media/*` 原始文件，并在一个事务中导入：若核心 JSON 损坏、格式不匹配或引用的媒体缺失，本次导入会返回错误且不创建任何回忆。导入时不会复用备份里的旧 UUID，避免覆盖或冲突。大文件导入会直接从 ZIP 成员流式写入媒体存储，不再把上传 ZIP 或单个视频整体读入内存，也不再通过 `testzip()` 预扫描完整 ZIP，从而降低云端导入大视频备份时的超时和内存压力。
 
 ### 2.7 新增/编辑回忆页
 
