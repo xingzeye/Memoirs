@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path, PurePosixPath
+from tempfile import SpooledTemporaryFile
 
 from django.conf import settings
 from django.contrib import messages
@@ -52,6 +53,7 @@ MEMOIR_MAX_PAGE_SIZE = 50
 MEDIA_PAGE_SIZE = 60
 MEDIA_MAX_PAGE_SIZE = 100
 MEMOIR_PREVIEW_MEDIA_LIMIT = 3
+BACKUP_ZIP_MEMORY_LIMIT = 32 * 1024 * 1024
 
 
 UPLOAD_FAILURE_MESSAGE = "视频或照片上传失败。文件可能太大，或服务器临时存储空间不足。请先压缩视频后再试。"
@@ -687,7 +689,7 @@ def skipped_backup_media_record(memoir: Memoir, media: MemoirMedia) -> dict[str,
     }
 
 
-def build_backup_zip(request: HttpRequest) -> tuple[bytes, str]:
+def build_backup_zip(request: HttpRequest):
     now = timezone.localtime(timezone.now())
     filename = f"memoirs-backup-{now.strftime('%Y%m%d-%H%M%S')}.zip"
     memoirs = list(
@@ -698,67 +700,71 @@ def build_backup_zip(request: HttpRequest) -> tuple[bytes, str]:
     backup_memoirs: list[dict[str, object]] = []
     skipped_media: list[dict[str, object]] = []
     media_count = 0
-    buffer = BytesIO()
+    zip_buffer = SpooledTemporaryFile(max_size=BACKUP_ZIP_MEMORY_LIMIT, mode="w+b")
 
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for memoir in memoirs:
-            media_records: list[dict[str, object]] = []
-            for media in memoir.media_items.all():
-                safe_filename = safe_backup_name(media.original_filename or Path(media.file.name).name, f"media-{media.id}")
-                archive_path = f"media/{memoir.pk}/{media.id}-{safe_filename}"
-                try:
-                    source_path = media_file_path(media.file.name)
-                    archive.write(source_path, archive_path)
-                except (Http404, OSError):
-                    skipped_media.append(skipped_backup_media_record(memoir, media))
-                    continue
-                media_count += 1
-                media_records.append(
+    try:
+        with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for memoir in memoirs:
+                media_records: list[dict[str, object]] = []
+                for media in memoir.media_items.all():
+                    safe_filename = safe_backup_name(media.original_filename or Path(media.file.name).name, f"media-{media.id}")
+                    archive_path = f"media/{memoir.pk}/{media.id}-{safe_filename}"
+                    try:
+                        source_path = media_file_path(media.file.name)
+                        archive.write(source_path, archive_path)
+                    except (Http404, OSError):
+                        skipped_media.append(skipped_backup_media_record(memoir, media))
+                        continue
+                    media_count += 1
+                    media_records.append(
+                        {
+                            "id": media.id,
+                            "originalFilename": media.original_filename,
+                            "mediaType": media.media_type,
+                            "mimeType": media.mime_type,
+                            "size": media.size,
+                            "uploadedAt": iso_datetime(media.uploaded_at),
+                            "archivePath": archive_path,
+                        }
+                    )
+
+                date_prefix = memoir.memory_date.isoformat() if memoir.memory_date else "undated"
+                markdown_name = safe_backup_name(f"{date_prefix}-{memoir.title}-{memoir.pk}.md", f"{memoir.pk}.md", 150)
+                markdown_path = f"markdown/{markdown_name}"
+                archive.writestr(markdown_path, backup_markdown(memoir, media_records))
+                backup_memoirs.append(
                     {
-                        "id": media.id,
-                        "originalFilename": media.original_filename,
-                        "mediaType": media.media_type,
-                        "mimeType": media.mime_type,
-                        "size": media.size,
-                        "uploadedAt": iso_datetime(media.uploaded_at),
-                        "archivePath": archive_path,
+                        "id": str(memoir.pk),
+                        "title": memoir.title,
+                        "story": memoir.story,
+                        "memoryDate": memoir.memory_date.isoformat() if memoir.memory_date else "",
+                        "location": memoir.location,
+                        "mood": memoir.mood,
+                        "createdAt": iso_datetime(memoir.created_at),
+                        "updatedAt": iso_datetime(memoir.updated_at),
+                        "markdownPath": markdown_path,
+                        "media": media_records,
                     }
                 )
 
-            date_prefix = memoir.memory_date.isoformat() if memoir.memory_date else "undated"
-            markdown_name = safe_backup_name(f"{date_prefix}-{memoir.title}-{memoir.pk}.md", f"{memoir.pk}.md", 150)
-            markdown_path = f"markdown/{markdown_name}"
-            archive.writestr(markdown_path, backup_markdown(memoir, media_records))
-            backup_memoirs.append(
-                {
-                    "id": str(memoir.pk),
-                    "title": memoir.title,
-                    "story": memoir.story,
-                    "memoryDate": memoir.memory_date.isoformat() if memoir.memory_date else "",
-                    "location": memoir.location,
-                    "mood": memoir.mood,
-                    "createdAt": iso_datetime(memoir.created_at),
-                    "updatedAt": iso_datetime(memoir.updated_at),
-                    "markdownPath": markdown_path,
-                    "media": media_records,
-                }
-            )
-
-        manifest = {
-            "formatVersion": BACKUP_FORMAT_VERSION,
-            "app": "Memoirs",
-            "exportedAt": now.isoformat(),
-            "username": request.user.get_username(),
-            "includeDeleted": False,
-            "memoirCount": len(backup_memoirs),
-            "mediaCount": media_count,
-            "skippedMediaCount": len(skipped_media),
-            "skippedMedia": skipped_media,
-        }
-        archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-        archive.writestr("memoirs.json", json.dumps({"memoirs": backup_memoirs}, ensure_ascii=False, indent=2))
-
-    return buffer.getvalue(), filename
+            manifest = {
+                "formatVersion": BACKUP_FORMAT_VERSION,
+                "app": "Memoirs",
+                "exportedAt": now.isoformat(),
+                "username": request.user.get_username(),
+                "includeDeleted": False,
+                "memoirCount": len(backup_memoirs),
+                "mediaCount": media_count,
+                "skippedMediaCount": len(skipped_media),
+                "skippedMedia": skipped_media,
+            }
+            archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+            archive.writestr("memoirs.json", json.dumps({"memoirs": backup_memoirs}, ensure_ascii=False, indent=2))
+        zip_buffer.seek(0)
+        return zip_buffer, filename
+    except Exception:
+        zip_buffer.close()
+        raise
 
 
 def read_backup_json(archive: zipfile.ZipFile, member_name: str) -> dict[str, object]:
@@ -1269,10 +1275,8 @@ def backup(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_http_methods(["GET"])
 def memoir_export(request: HttpRequest) -> HttpResponse:
-    zip_bytes, filename = build_backup_zip(request)
-    response = HttpResponse(zip_bytes, content_type="application/zip")
-    response["Content-Disposition"] = content_disposition_header(True, filename)
-    response["Content-Length"] = str(len(zip_bytes))
+    zip_file, filename = build_backup_zip(request)
+    response = FileResponse(zip_file, as_attachment=True, filename=filename, content_type="application/zip")
     response["X-Content-Type-Options"] = "nosniff"
     return response
 

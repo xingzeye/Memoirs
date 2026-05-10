@@ -424,7 +424,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 /memoirs/export/
 ```
 
-`memoir_export` 使用 Python 标准库 `zipfile` 在内存中生成附件下载，ZIP 文件名为 `memoirs-backup-YYYYMMDD-HHMMSS.zip`。导出范围仅包含当前登录用户且 `deleted_at` 为空的回忆与媒体；其他用户和回收站内容不会进入备份。如果数据库里仍有媒体记录但原文件已经不在磁盘上，导出会跳过该媒体并继续生成 ZIP，避免单个缺失文件导致整个下载失败。ZIP 结构如下：
+`memoir_export` 使用 Python 标准库 `zipfile` 生成附件下载，ZIP 文件名为 `memoirs-backup-YYYYMMDD-HHMMSS.zip`。导出过程使用 `SpooledTemporaryFile`：小备份保留在内存中，超过 `BACKUP_ZIP_MEMORY_LIMIT` 后自动写入临时文件，并通过 `FileResponse` 作为附件返回，降低云端部署下载大备份时的内存压力。导出范围仅包含当前登录用户且 `deleted_at` 为空的回忆与媒体；其他用户和回收站内容不会进入备份。如果数据库里仍有媒体记录但原文件已经不在磁盘上，导出会跳过该媒体并继续生成 ZIP，避免单个缺失文件导致整个下载失败。ZIP 结构如下：
 
 ```text
 manifest.json

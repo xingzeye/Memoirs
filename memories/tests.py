@@ -54,6 +54,15 @@ def app_payload(response):
     return response.context["app_initial_data"]["payload"]
 
 
+def response_bytes(response) -> bytes:
+    if getattr(response, "streaming", False):
+        try:
+            return b"".join(response.streaming_content)
+        finally:
+            response.close()
+    return response.content
+
+
 @override_settings(MEDIA_ROOT=TEST_MEDIA_ROOT)
 class MemoirViewTests(TestCase):
     def setUp(self):
@@ -600,7 +609,7 @@ class MemoirViewTests(TestCase):
         self.assertIn("memoirs-backup-", response["Content-Disposition"])
         self.assertIn(".zip", response["Content-Disposition"])
 
-        with zipfile.ZipFile(BytesIO(response.content), "r") as archive:
+        with zipfile.ZipFile(BytesIO(response_bytes(response)), "r") as archive:
             names = archive.namelist()
             self.assertIn("manifest.json", names)
             self.assertIn("memoirs.json", names)
@@ -669,7 +678,7 @@ class MemoirViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/zip")
-        with zipfile.ZipFile(BytesIO(response.content), "r") as archive:
+        with zipfile.ZipFile(BytesIO(response_bytes(response)), "r") as archive:
             names = archive.namelist()
             manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
             memoirs_payload = json.loads(archive.read("memoirs.json").decode("utf-8"))
