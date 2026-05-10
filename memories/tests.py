@@ -618,6 +618,9 @@ class MemoirViewTests(TestCase):
             self.assertEqual(len(markdown_paths), 1)
             self.assertEqual(len(media_paths), 1)
             self.assertEqual(archive.read(media_paths[0]), TINY_PNG_BYTES)
+            self.assertEqual(archive.getinfo(media_paths[0]).compress_type, zipfile.ZIP_STORED)
+            self.assertEqual(archive.getinfo(markdown_paths[0]).compress_type, zipfile.ZIP_DEFLATED)
+            self.assertEqual(archive.getinfo("manifest.json").compress_type, zipfile.ZIP_DEFLATED)
 
             manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
             self.assertEqual(manifest["formatVersion"], 1)

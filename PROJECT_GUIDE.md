@@ -146,7 +146,7 @@ http://127.0.0.1:8017/admin/
 生产启动命令由 `zbpack.json` 定义：
 
 ```sh
-mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py ensure_superuser && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8080}
+mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py ensure_superuser && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --timeout ${GUNICORN_TIMEOUT:-180}
 ```
 
 这条命令会依次完成：
@@ -155,7 +155,7 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 2. 执行数据库迁移。
 3. 收集静态文件。
 4. 根据环境变量创建初始超级用户。
-5. 用 Gunicorn 启动 Django WSGI 应用。
+5. 用 Gunicorn 启动 Django WSGI 应用，默认请求超时为 180 秒，可通过 `GUNICORN_TIMEOUT` 调整。
 
 ## 2. 前端说明
 
@@ -424,7 +424,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 /memoirs/export/
 ```
 
-`memoir_export` 使用 Python 标准库 `zipfile` 生成附件下载，ZIP 文件名为 `memoirs-backup-YYYYMMDD-HHMMSS.zip`。导出过程使用 `SpooledTemporaryFile`：小备份保留在内存中，超过 `BACKUP_ZIP_MEMORY_LIMIT` 后自动写入临时文件，并通过 `FileResponse` 作为附件返回，降低云端部署下载大备份时的内存压力。导出范围仅包含当前登录用户且 `deleted_at` 为空的回忆与媒体；其他用户和回收站内容不会进入备份。如果数据库里仍有媒体记录但原文件已经不在磁盘上，导出会跳过该媒体并继续生成 ZIP，避免单个缺失文件导致整个下载失败。ZIP 结构如下：
+`memoir_export` 使用 Python 标准库 `zipfile` 生成附件下载，ZIP 文件名为 `memoirs-backup-YYYYMMDD-HHMMSS.zip`。导出过程使用 `SpooledTemporaryFile`：小备份保留在内存中，超过 `BACKUP_ZIP_MEMORY_LIMIT` 后自动写入临时文件，并通过 `FileResponse` 作为附件返回，降低云端部署下载大备份时的内存压力。照片和视频通常已经是压缩格式，写入 ZIP 时使用 `ZIP_STORED` 保持原始文件存储，避免云端重复压缩导致请求超时；JSON 和 Markdown 继续使用压缩写入。导出范围仅包含当前登录用户且 `deleted_at` 为空的回忆与媒体；其他用户和回收站内容不会进入备份。如果数据库里仍有媒体记录但原文件已经不在磁盘上，导出会跳过该媒体并继续生成 ZIP，避免单个缺失文件导致整个下载失败。ZIP 结构如下：
 
 ```text
 manifest.json
@@ -1494,6 +1494,7 @@ DJANGO_SUPERUSER_PASSWORD=
 | `MEDIA_ROOT` | `BASE_DIR / "media"` | `/data/media` | 上传文件保存目录 |
 | `ZEABUR_WEB_DOMAIN` | 空 | Zeabur 自动或手动设置 | 自动加入 Host/CSRF |
 | `ZEABUR_WEB_URL` | 空 | Zeabur 自动或手动设置 | 自动加入 Host/CSRF |
+| `GUNICORN_TIMEOUT` | `180` | 按备份规模调整 | Gunicorn 请求超时时间 |
 | `DJANGO_SUPERUSER_USERNAME` | 空 | 首次部署可填 | 自动创建管理员 |
 | `DJANGO_SUPERUSER_EMAIL` | 空 | 可选 | 管理员邮箱 |
 | `DJANGO_SUPERUSER_PASSWORD` | 空 | 首次部署可填 | 管理员密码 |
@@ -1683,7 +1684,7 @@ Zeabur Web Service
     "entry": "manage.py",
     "package_manager": "pip"
   },
-  "start_command": "mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py ensure_superuser && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8080}"
+  "start_command": "mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py ensure_superuser && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --timeout ${GUNICORN_TIMEOUT:-180}"
 }
 ```
 
@@ -1695,7 +1696,7 @@ Zeabur Web Service
 - 启动时自动迁移数据库。
 - 启动时收集静态文件。
 - 启动时尝试创建超级用户。
-- 最终由 Gunicorn 监听平台提供的 `PORT`。
+- 最终由 Gunicorn 监听平台提供的 `PORT`，并通过 `GUNICORN_TIMEOUT` 控制请求超时。
 
 ### 7.3 Neon 数据库
 
