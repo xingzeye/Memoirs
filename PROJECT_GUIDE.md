@@ -1,4 +1,4 @@
-# 忆往昔项目全栈说明文档
+﻿# 忆往昔项目全栈说明文档
 
 > 本文档基于当前项目源码编写，用于从前端、后端、数据库到部署的完整交接和维护。
 > 文档只描述当前实现，不修改运行代码、数据库结构或接口行为。
@@ -146,7 +146,7 @@ http://127.0.0.1:8017/admin/
 生产启动命令由 `zbpack.json` 定义：
 
 ```sh
-mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py ensure_superuser && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --timeout ${GUNICORN_TIMEOUT:-180}
+mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py ensure_superuser && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --timeout ${GUNICORN_TIMEOUT:-600}
 ```
 
 这条命令会依次完成：
@@ -155,7 +155,7 @@ mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && pyt
 2. 执行数据库迁移。
 3. 收集静态文件。
 4. 根据环境变量创建初始超级用户。
-5. 用 Gunicorn 启动 Django WSGI 应用，默认请求超时为 180 秒，可通过 `GUNICORN_TIMEOUT` 调整。
+5. 用 Gunicorn 启动 Django WSGI 应用，默认请求超时为 600 秒，可通过 `GUNICORN_TIMEOUT` 调整。
 
 ## 2. 前端说明
 
@@ -1494,7 +1494,7 @@ DJANGO_SUPERUSER_PASSWORD=
 | `MEDIA_ROOT` | `BASE_DIR / "media"` | `/data/media` | 上传文件保存目录 |
 | `ZEABUR_WEB_DOMAIN` | 空 | Zeabur 自动或手动设置 | 自动加入 Host/CSRF |
 | `ZEABUR_WEB_URL` | 空 | Zeabur 自动或手动设置 | 自动加入 Host/CSRF |
-| `GUNICORN_TIMEOUT` | `180` | 按备份规模调整 | Gunicorn 请求超时时间 |
+| `GUNICORN_TIMEOUT` | `600` | 按备份规模调整 | Gunicorn 请求超时时间 |
 | `DJANGO_SUPERUSER_USERNAME` | 空 | 首次部署可填 | 自动创建管理员 |
 | `DJANGO_SUPERUSER_EMAIL` | 空 | 可选 | 管理员邮箱 |
 | `DJANGO_SUPERUSER_PASSWORD` | 空 | 首次部署可填 | 管理员密码 |
@@ -1684,7 +1684,7 @@ Zeabur Web Service
     "entry": "manage.py",
     "package_manager": "pip"
   },
-  "start_command": "mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py ensure_superuser && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --timeout ${GUNICORN_TIMEOUT:-180}"
+  "start_command": "mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py ensure_superuser && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --timeout ${GUNICORN_TIMEOUT:-600}"
 }
 ```
 
