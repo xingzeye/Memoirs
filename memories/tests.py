@@ -3,6 +3,7 @@ import zipfile
 from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -46,7 +47,7 @@ def backup_zip_bytes(memoirs: list[dict], media_files: dict[str, bytes] | None =
         )
         archive.writestr("memoirs.json", json.dumps({"memoirs": memoirs}, ensure_ascii=False))
         for archive_path, content in (media_files or {}).items():
-            archive.writestr(archive_path, content)
+            archive.writestr(archive_path, content, compress_type=zipfile.ZIP_STORED)
     return buffer.getvalue()
 
 
@@ -754,6 +755,56 @@ class MemoirViewTests(TestCase):
         media.file.open("rb")
         try:
             self.assertEqual(media.file.read(), TINY_PNG_BYTES)
+        finally:
+            media.file.close()
+
+    @override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=1024)
+    def test_import_backup_zip_streams_video_media_without_pretesting_archive(self):
+        archive_path = "media/exported-memoir/8-imported-video.mp4"
+        video_bytes = (b"\x00\x00\x00\x18ftypmp42" + bytes(range(256))) * 512
+        zip_bytes = backup_zip_bytes(
+            [
+                {
+                    "id": "exported-memoir",
+                    "title": "Imported Video Day",
+                    "story": "A restored story with video.",
+                    "memoryDate": "2026-05-09",
+                    "location": "Xiamen",
+                    "mood": "Warm",
+                    "media": [
+                        {
+                            "id": 8,
+                            "originalFilename": "imported video.mp4",
+                            "mediaType": "video",
+                            "mimeType": "video/mp4",
+                            "size": len(video_bytes),
+                            "archivePath": archive_path,
+                        }
+                    ],
+                }
+            ],
+            {archive_path: video_bytes},
+        )
+
+        self.login()
+        with patch.object(zipfile.ZipFile, "testzip", side_effect=AssertionError("import should not pretest the whole archive")):
+            response = self.client.post(
+                reverse("memoir_import"),
+                {"backup": SimpleUploadedFile("memoirs-backup.zip", zip_bytes, content_type="application/zip")},
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["imported"], {"memoirs": 1, "media": 1})
+
+        memoir = Memoir.objects.get(owner=self.user, title="Imported Video Day")
+        media = memoir.media_items.get()
+        self.assertEqual(media.media_type, MemoirMedia.MediaType.VIDEO)
+        self.assertEqual(media.mime_type, "video/mp4")
+        self.assertEqual(media.size, len(video_bytes))
+        media.file.open("rb")
+        try:
+            self.assertEqual(media.file.read(), video_bytes)
         finally:
             media.file.close()
 
