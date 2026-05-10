@@ -424,7 +424,7 @@ onsubmit="return confirm('确定删除这段回忆和它的媒体文件吗？');
 /memoirs/export/
 ```
 
-`memoir_export` 使用 Python 标准库 `zipfile` 在内存中生成附件下载，ZIP 文件名为 `memoirs-backup-YYYYMMDD-HHMMSS.zip`。导出范围仅包含当前登录用户且 `deleted_at` 为空的回忆与媒体；其他用户和回收站内容不会进入备份。ZIP 结构如下：
+`memoir_export` 使用 Python 标准库 `zipfile` 在内存中生成附件下载，ZIP 文件名为 `memoirs-backup-YYYYMMDD-HHMMSS.zip`。导出范围仅包含当前登录用户且 `deleted_at` 为空的回忆与媒体；其他用户和回收站内容不会进入备份。如果数据库里仍有媒体记录但原文件已经不在磁盘上，导出会跳过该媒体并继续生成 ZIP，避免单个缺失文件导致整个下载失败。ZIP 结构如下：
 
 ```text
 manifest.json
@@ -433,7 +433,7 @@ markdown/<date-or-undated>-<safe-title>-<memoir_id>.md
 media/<memoir_id>/<media_id>-<safe-original-filename>
 ```
 
-`manifest.json` 记录格式版本、导出时间、应用名、用户名、回忆数和媒体数；`memoirs.json` 保留回忆字段、创建/更新时间和媒体元数据；Markdown 面向人工阅读，包含标题、日期、地点、心情、正文和媒体相对链接。
+`manifest.json` 记录格式版本、导出时间、应用名、用户名、回忆数、实际写入 ZIP 的媒体数，以及 `skippedMediaCount` / `skippedMedia` 缺失媒体清单；`memoirs.json` 保留回忆字段、创建/更新时间和成功写入的媒体元数据；Markdown 面向人工阅读，包含标题、日期、地点、心情、正文和媒体相对链接。
 
 导入路由：
 

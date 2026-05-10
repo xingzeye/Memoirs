@@ -678,6 +678,15 @@ def backup_markdown(memoir: Memoir, media_records: list[dict[str, object]]) -> s
     return "\n".join(lines)
 
 
+def skipped_backup_media_record(memoir: Memoir, media: MemoirMedia) -> dict[str, object]:
+    return {
+        "id": media.id,
+        "memoirId": str(memoir.pk),
+        "memoirTitle": memoir.title,
+        "originalFilename": media.original_filename or Path(media.file.name).name or f"media-{media.id}",
+    }
+
+
 def build_backup_zip(request: HttpRequest) -> tuple[bytes, str]:
     now = timezone.localtime(timezone.now())
     filename = f"memoirs-backup-{now.strftime('%Y%m%d-%H%M%S')}.zip"
@@ -687,6 +696,7 @@ def build_backup_zip(request: HttpRequest) -> tuple[bytes, str]:
         .order_by("-memory_date", "-created_at")
     )
     backup_memoirs: list[dict[str, object]] = []
+    skipped_media: list[dict[str, object]] = []
     media_count = 0
     buffer = BytesIO()
 
@@ -694,10 +704,14 @@ def build_backup_zip(request: HttpRequest) -> tuple[bytes, str]:
         for memoir in memoirs:
             media_records: list[dict[str, object]] = []
             for media in memoir.media_items.all():
-                source_path = media_file_path(media.file.name)
                 safe_filename = safe_backup_name(media.original_filename or Path(media.file.name).name, f"media-{media.id}")
                 archive_path = f"media/{memoir.pk}/{media.id}-{safe_filename}"
-                archive.write(source_path, archive_path)
+                try:
+                    source_path = media_file_path(media.file.name)
+                    archive.write(source_path, archive_path)
+                except (Http404, OSError):
+                    skipped_media.append(skipped_backup_media_record(memoir, media))
+                    continue
                 media_count += 1
                 media_records.append(
                     {
@@ -738,6 +752,8 @@ def build_backup_zip(request: HttpRequest) -> tuple[bytes, str]:
             "includeDeleted": False,
             "memoirCount": len(backup_memoirs),
             "mediaCount": media_count,
+            "skippedMediaCount": len(skipped_media),
+            "skippedMedia": skipped_media,
         }
         archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         archive.writestr("memoirs.json", json.dumps({"memoirs": backup_memoirs}, ensure_ascii=False, indent=2))
