@@ -617,6 +617,8 @@ class MemoirViewTests(TestCase):
             self.assertFalse(manifest["includeDeleted"])
             self.assertEqual(manifest["memoirCount"], 1)
             self.assertEqual(manifest["mediaCount"], 1)
+            self.assertEqual(manifest["skippedMediaCount"], 0)
+            self.assertEqual(manifest["skippedMedia"], [])
 
             memoirs_payload = json.loads(archive.read("memoirs.json").decode("utf-8"))
             self.assertEqual(len(memoirs_payload["memoirs"]), 1)
@@ -644,6 +646,45 @@ class MemoirViewTests(TestCase):
             self.assertNotIn("Other Memory", archive_text)
             self.assertFalse(any(name.startswith(f"media/{deleted.pk}/") for name in names))
             self.assertFalse(any(name.startswith(f"media/{other.pk}/") for name in names))
+
+    def test_export_zip_skips_missing_media_files(self):
+        active = Memoir.objects.create(
+            title="Missing File Day",
+            story="The text should still be exportable.",
+            owner=self.user,
+        )
+        missing_media = MemoirMedia.objects.create(
+            memoir=active,
+            file=SimpleUploadedFile("missing-file.jpg", b"missing bytes", content_type="image/jpeg"),
+            original_filename="missing-file.jpg",
+            media_type=MemoirMedia.MediaType.IMAGE,
+            mime_type="image/jpeg",
+            size=13,
+        )
+        missing_path = TEST_MEDIA_ROOT / missing_media.file.name
+        missing_path.unlink()
+
+        self.login()
+        response = self.client.get(reverse("memoir_export"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/zip")
+        with zipfile.ZipFile(BytesIO(response.content), "r") as archive:
+            names = archive.namelist()
+            manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+            memoirs_payload = json.loads(archive.read("memoirs.json").decode("utf-8"))
+            markdown_paths = [name for name in names if name.startswith("markdown/") and name.endswith(".md")]
+
+            self.assertEqual(manifest["memoirCount"], 1)
+            self.assertEqual(manifest["mediaCount"], 0)
+            self.assertEqual(manifest["skippedMediaCount"], 1)
+            self.assertEqual(manifest["skippedMedia"][0]["id"], missing_media.id)
+            self.assertEqual(manifest["skippedMedia"][0]["originalFilename"], "missing-file.jpg")
+            self.assertFalse(any(name.startswith(f"media/{active.pk}/") for name in names))
+            self.assertEqual(memoirs_payload["memoirs"][0]["media"], [])
+            markdown = archive.read(markdown_paths[0]).decode("utf-8")
+            self.assertIn("The text should still be exportable.", markdown)
+            self.assertIn("这段回忆没有媒体文件。", markdown)
 
     def test_import_backup_zip_creates_current_user_memoirs_and_media(self):
         archive_path = "media/exported-memoir/7-imported-photo.png"

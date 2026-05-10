@@ -49,6 +49,7 @@
 - ZIP 文件名格式：`memoirs-backup-YYYYMMDD-HHMMSS.zip`
 - 导出范围：仅包含当前登录账号未进入回收站的回忆和媒体；回收站内容不会导出。
 - ZIP 内容：`manifest.json`、`memoirs.json`、`markdown/*.md` 和 `media/<memoir_id>/*` 原始媒体文件。
+- 导出容错：如果数据库里仍有媒体记录但原文件已不在磁盘上，导出会跳过该媒体并在 `manifest.json` 的 `skippedMediaCount` / `skippedMedia` 中记录，不会中断整个 ZIP 下载。
 - 导入范围：只接受本应用导出的 ZIP；导入时归属到当前登录账号，始终创建新的回忆和媒体记录，不覆盖现有内容，不恢复回收站状态。
 
 ## 当前页面文案
