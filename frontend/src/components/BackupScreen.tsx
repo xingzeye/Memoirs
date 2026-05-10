@@ -42,6 +42,9 @@ export function BackupScreen({ session, payload, onLogout }: BackupScreenProps) 
 
   const submitImport = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isImporting) {
+      return;
+    }
     setErrors({});
     setResult(null);
 
@@ -55,6 +58,7 @@ export function BackupScreen({ session, payload, onLogout }: BackupScreenProps) 
     setIsImporting(true);
     try {
       const response = await apiForm<BackupImportResponse>(importUrl, session.csrfToken, formData);
+      setErrors({});
       setResult(response.imported || { memoirs: 0, media: 0 });
       if (response.stats) {
         setStats(response.stats);
