@@ -1,4 +1,4 @@
-# 管理员与部署维护手册
+﻿# 管理员与部署维护手册
 
 本文面向项目管理员、部署者和维护者，说明如何运行、部署、备份、排障和验证「忆往昔」。
 
@@ -112,7 +112,7 @@ conda install -n memoirs "nodejs>=22"
 | `MEDIA_ROOT` | 上传文件保存目录 |
 | `ZEABUR_WEB_DOMAIN` | Zeabur 域名，配置后自动加入 Host/CSRF |
 | `ZEABUR_WEB_URL` | Zeabur 完整 URL，配置后自动加入 Host/CSRF |
-| `GUNICORN_TIMEOUT` | Gunicorn 请求超时，默认 180 秒 |
+| `GUNICORN_TIMEOUT` | Gunicorn 请求超时，默认 600 秒 |
 | `DJANGO_SUPERUSER_USERNAME` | 部署时自动创建管理员用户名 |
 | `DJANGO_SUPERUSER_EMAIL` | 部署时自动创建管理员邮箱 |
 | `DJANGO_SUPERUSER_PASSWORD` | 部署时自动创建管理员密码 |
@@ -143,7 +143,7 @@ DEBUG=False
 ALLOW_PUBLIC_REGISTRATION=False
 MEDIA_ROOT=/data/media
 SECRET_KEY=<生产随机密钥>
-GUNICORN_TIMEOUT=180
+GUNICORN_TIMEOUT=600
 DJANGO_SUPERUSER_USERNAME=<管理员用户名>
 DJANGO_SUPERUSER_EMAIL=<管理员邮箱>
 DJANGO_SUPERUSER_PASSWORD=<管理员初始密码>
@@ -168,7 +168,7 @@ ZEABUR_WEB_URL=https://<你的域名>
 `zbpack.json` 定义生产启动命令：
 
 ```sh
-mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py ensure_superuser && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --timeout ${GUNICORN_TIMEOUT:-180}
+mkdir -p ${MEDIA_ROOT:-/data/media} && python manage.py migrate --noinput && python manage.py collectstatic --noinput && python manage.py ensure_superuser && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --timeout ${GUNICORN_TIMEOUT:-600}
 ```
 
 启动时会：
@@ -306,7 +306,7 @@ python manage.py cleanup_mobile_uploads
 检查：
 
 - 当前部署是否包含媒体 `ZIP_STORED` 和 `FileResponse` 导出逻辑。
-- `GUNICORN_TIMEOUT` 是否足够大，默认 180 秒。
+- `GUNICORN_TIMEOUT` 是否足够大，默认 600 秒。
 - 媒体文件是否过多或单个视频过大。
 - Zeabur 日志中是否出现 worker timeout。
 

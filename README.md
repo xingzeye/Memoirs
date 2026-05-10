@@ -1,4 +1,4 @@
-# Memoirs
+﻿# Memoirs
 
 一个基于 Django 的私人回忆管理应用，用来记录、搜索和管理个人回忆，并为每条回忆附加图片或视频。
 
@@ -57,7 +57,7 @@
 - Markdown 预览：图片会写成内嵌图片语法 `![文件名](../media/...)`，视频保留为链接；查看 Markdown 前建议完整解压 ZIP，保持 `markdown/` 与 `media/` 目录相对位置不变。
 - 导出容错：如果数据库里仍有媒体记录但原文件已不在磁盘上，导出会跳过该媒体并在 `manifest.json` 的 `skippedMediaCount` / `skippedMedia` 中记录，不会中断整个 ZIP 下载。
 - 大文件导出：ZIP 生成超过内存阈值后会自动落到临时文件并以附件流式返回，降低云端部署下载大备份时的内存压力。
-- 云端导出优化：照片和视频按原始文件存入 ZIP，不重复压缩；Gunicorn 默认超时可通过 `GUNICORN_TIMEOUT` 调整，默认 180 秒。
+- 云端导出优化：照片和视频按原始文件存入 ZIP，不重复压缩；Gunicorn 默认超时可通过 `GUNICORN_TIMEOUT` 调整，默认 600 秒。
 - 导入范围：只接受本应用导出的 ZIP；导入时归属到当前登录账号，始终创建新的回忆和媒体记录，不覆盖现有内容，不恢复回收站状态。
 - 大文件导入：导入时会从 ZIP 成员流式保存照片和视频，不再把整包或单个大视频一次性读入内存，也不再预扫描整个 ZIP，降低云端导入大备份时的超时和内存压力。
 
@@ -206,7 +206,7 @@ Copy-Item .env.example .env
 | `MEDIA_ROOT` | 上传文件保存目录 |
 | `ZEABUR_WEB_DOMAIN` | Zeabur 提供的域名 |
 | `ZEABUR_WEB_URL` | Zeabur 提供的完整 URL |
-| `GUNICORN_TIMEOUT` | Gunicorn 请求超时时间，默认 180 秒 |
+| `GUNICORN_TIMEOUT` | Gunicorn 请求超时时间，默认 600 秒 |
 | `DJANGO_SUPERUSER_USERNAME` | 部署时自动创建的管理员用户名 |
 | `DJANGO_SUPERUSER_EMAIL` | 部署时自动创建的管理员邮箱 |
 | `DJANGO_SUPERUSER_PASSWORD` | 部署时自动创建的管理员密码 |

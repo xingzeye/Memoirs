@@ -54,9 +54,9 @@ async function readResponsePayload<T>(response: Response): Promise<T> {
       response.status === 413
         ? "上传失败：文件太大，超过服务器允许的上传大小。"
         : response.status === 400
-          ? "上传失败：文件可能超过服务器允许大小，或请求被平台拦截。建议压缩视频后再试。"
+          ? "上传失败：文件可能超过服务器允许大小，或请求被平台拦截。请稍后重试，或换用更小的备份文件。"
           : response.status >= 500
-            ? "上传失败：服务器处理视频时出错。建议先压缩视频，或稍后再试。"
+            ? "上传失败：服务器处理备份时超时或出错。请稍后重试；如果备份很大，请联系管理员调高导入超时时间。"
             : text.trim() || "请求失败，请稍后再试。";
     throw { errors: { __all__: [message] }, status: response.status };
   }

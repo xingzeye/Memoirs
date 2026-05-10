@@ -1,4 +1,4 @@
-# 项目认知备忘
+﻿# 项目认知备忘
 
 ## 最近功能变更：React/Vite 全流程前端
 
@@ -14,7 +14,7 @@
 - 2026-05-09：新增备份导出与导入；`/memoirs/backup/` 提供当前账号正常回忆的 ZIP 下载入口，`/memoirs/export/` 导出 JSON、Markdown 和原始媒体文件，`/memoirs/import/` 可把本应用备份 ZIP 导入为当前账号的新回忆，不包含或恢复回收站状态。
 - 2026-05-10：备份导出增加缺失媒体容错；如果媒体记录还在但原文件已经不在磁盘上，ZIP 仍会下载成功，并在 `manifest.json` 的 `skippedMediaCount` / `skippedMedia` 记录被跳过的媒体。
 - 2026-05-10：备份导出改为 `SpooledTemporaryFile` + `FileResponse`，大 ZIP 超过内存阈值后自动写入临时文件并以附件返回，减少云端下载大备份时的内存压力。
-- 2026-05-10：备份导出媒体文件改用 `ZIP_STORED` 原样写入，避免照片/视频在云端重复压缩导致请求超时；Zeabur Gunicorn 默认超时改为 `${GUNICORN_TIMEOUT:-180}`。
+- 2026-05-10：备份导出媒体文件改用 `ZIP_STORED` 原样写入，避免照片/视频在云端重复压缩导致请求超时；Zeabur Gunicorn 默认超时改为 `${GUNICORN_TIMEOUT:-600}`。
 - 2026-05-10：备份 Markdown 中图片媒体改为内嵌图片语法 `![文件名](../media/...)`，并转义文件名方括号；视频等非图片媒体保留为链接。查看 Markdown 前需完整解压 ZIP，保持 `markdown/` 与 `media/` 相对位置。
 - 2026-05-10：新增 `USER_GUIDE.md` 普通用户使用手册和 `ADMIN_GUIDE.md` 管理员/部署维护手册；README 提供两份文档入口。
 - 2026-05-10：备份导入改为从 ZIP 成员流式保存媒体文件，不再把上传 ZIP 或单个大视频整体读入内存，也不再预扫描完整 ZIP，减少云端导入大备份时的 500/超时风险。
