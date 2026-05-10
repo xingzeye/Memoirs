@@ -657,6 +657,20 @@ def iso_datetime(value) -> str:
     return timezone.localtime(value).isoformat() if value else ""
 
 
+def markdown_link_label(value: object, fallback: str = "media") -> str:
+    label = str(value or fallback).replace("\r", " ").replace("\n", " ").strip() or fallback
+    return label.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def backup_markdown_media_entry(media: dict[str, object]) -> list[str]:
+    label = markdown_link_label(media.get("originalFilename"))
+    archive_path = media.get("archivePath")
+    target = f"../{archive_path}"
+    if media.get("mediaType") == MemoirMedia.MediaType.IMAGE:
+        return [f"![{label}]({target})", ""]
+    return [f"- [{label}]({target})"]
+
+
 def backup_markdown(memoir: Memoir, media_records: list[dict[str, object]]) -> str:
     lines = [
         f"# {memoir.title}",
@@ -674,7 +688,7 @@ def backup_markdown(memoir: Memoir, media_records: list[dict[str, object]]) -> s
     ]
     if media_records:
         for media in media_records:
-            lines.append(f"- [{media['originalFilename']}](../{media['archivePath']})")
+            lines.extend(backup_markdown_media_entry(media))
     else:
         lines.append("这段回忆没有媒体文件。")
     lines.append("")

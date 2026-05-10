@@ -49,6 +49,7 @@
 - ZIP 文件名格式：`memoirs-backup-YYYYMMDD-HHMMSS.zip`
 - 导出范围：仅包含当前登录账号未进入回收站的回忆和媒体；回收站内容不会导出。
 - ZIP 内容：`manifest.json`、`memoirs.json`、`markdown/*.md` 和 `media/<memoir_id>/*` 原始媒体文件。
+- Markdown 预览：图片会写成内嵌图片语法 `![文件名](../media/...)`，视频保留为链接；查看 Markdown 前建议完整解压 ZIP，保持 `markdown/` 与 `media/` 目录相对位置不变。
 - 导出容错：如果数据库里仍有媒体记录但原文件已不在磁盘上，导出会跳过该媒体并在 `manifest.json` 的 `skippedMediaCount` / `skippedMedia` 中记录，不会中断整个 ZIP 下载。
 - 大文件导出：ZIP 生成超过内存阈值后会自动落到临时文件并以附件流式返回，降低云端部署下载大备份时的内存压力。
 - 云端导出优化：照片和视频按原始文件存入 ZIP，不重复压缩；Gunicorn 默认超时可通过 `GUNICORN_TIMEOUT` 调整，默认 180 秒。
