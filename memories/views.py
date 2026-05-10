@@ -54,6 +54,7 @@ MEDIA_PAGE_SIZE = 60
 MEDIA_MAX_PAGE_SIZE = 100
 MEMOIR_PREVIEW_MEDIA_LIMIT = 3
 BACKUP_ZIP_MEMORY_LIMIT = 32 * 1024 * 1024
+BACKUP_MEDIA_COMPRESSION = zipfile.ZIP_STORED
 
 
 UPLOAD_FAILURE_MESSAGE = "视频或照片上传失败。文件可能太大，或服务器临时存储空间不足。请先压缩视频后再试。"
@@ -711,7 +712,7 @@ def build_backup_zip(request: HttpRequest):
                     archive_path = f"media/{memoir.pk}/{media.id}-{safe_filename}"
                     try:
                         source_path = media_file_path(media.file.name)
-                        archive.write(source_path, archive_path)
+                        archive.write(source_path, archive_path, compress_type=BACKUP_MEDIA_COMPRESSION)
                     except (Http404, OSError):
                         skipped_media.append(skipped_backup_media_record(memoir, media))
                         continue
