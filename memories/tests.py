@@ -578,7 +578,7 @@ class MemoirViewTests(TestCase):
         active_media = MemoirMedia.objects.create(
             memoir=active,
             file=SimpleUploadedFile("summer photo.png", TINY_PNG_BYTES, content_type="image/png"),
-            original_filename="summer photo.png",
+            original_filename="[summer photo].png",
             media_type=MemoirMedia.MediaType.IMAGE,
             mime_type="image/png",
             size=len(TINY_PNG_BYTES),
@@ -652,6 +652,7 @@ class MemoirViewTests(TestCase):
             self.assertIn("Calm", markdown)
             self.assertIn("A readable story for the backup.", markdown)
             self.assertIn(f"../{media_paths[0]}", markdown)
+            self.assertIn(f"![\\[summer photo\\].png](../{media_paths[0]})", markdown)
 
             archive_text = "\n".join(names) + "\n" + json.dumps(memoirs_payload)
             self.assertNotIn("Trash Memory", archive_text)

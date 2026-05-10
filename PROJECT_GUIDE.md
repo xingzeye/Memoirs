@@ -433,7 +433,7 @@ markdown/<date-or-undated>-<safe-title>-<memoir_id>.md
 media/<memoir_id>/<media_id>-<safe-original-filename>
 ```
 
-`manifest.json` 记录格式版本、导出时间、应用名、用户名、回忆数、实际写入 ZIP 的媒体数，以及 `skippedMediaCount` / `skippedMedia` 缺失媒体清单；`memoirs.json` 保留回忆字段、创建/更新时间和成功写入的媒体元数据；Markdown 面向人工阅读，包含标题、日期、地点、心情、正文和媒体相对链接。
+`manifest.json` 记录格式版本、导出时间、应用名、用户名、回忆数、实际写入 ZIP 的媒体数，以及 `skippedMediaCount` / `skippedMedia` 缺失媒体清单；`memoirs.json` 保留回忆字段、创建/更新时间和成功写入的媒体元数据；Markdown 面向人工阅读，包含标题、日期、地点、心情、正文和媒体相对引用。图片媒体写成 `![文件名](../media/...)`，可在 Markdown 预览中直接显示；视频等非图片媒体保留为普通链接。文件名中的方括号会被转义，避免破坏 Markdown 语法。查看 Markdown 前应完整解压 ZIP，保持 `markdown/` 与 `media/` 目录相对位置不变。
 
 导入路由：
 
