@@ -1,6 +1,9 @@
 const SESSION_USER = { id: 1, username: "Sites Owner", isStaff: true };
 const PAGE_SIZE = 20;
 const MEDIA_PAGE_SIZE = 60;
+const BACKUP_FORMAT_VERSION = 1;
+const IMAGE_EXTENSIONS = new Set([".apng", ".avif", ".gif", ".heic", ".jpeg", ".jpg", ".png", ".webp"]);
+const VIDEO_EXTENSIONS = new Set([".m4v", ".mov", ".mp4", ".mpeg", ".webm"]);
 
 const schema = [
   `CREATE TABLE IF NOT EXISTS memoirs (
@@ -53,7 +56,7 @@ export default {
         return exportBackup(env);
       }
       if (url.pathname.startsWith("/memoirs/import/")) {
-        return json({ errors: { backup: ["Sites 版暂未支持 ZIP 导入，请先使用新增回忆保存文字内容。"] } }, 400);
+        return importBackup(request, env);
       }
 
       return handlePage(request, env, url);
@@ -214,7 +217,7 @@ async function memoirCollectionPayload(env, url) {
 
 async function createMemoir(request, env) {
   const form = await request.formData();
-  const files = form.getAll("media").filter((item) => item instanceof File && item.size > 0);
+  const files = form.getAll("media").filter(isUploadedFile);
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   const values = formValues(form);
@@ -241,7 +244,7 @@ async function updateMemoir(request, env, id) {
   for (const mediaId of deleteIds) {
     await deleteMedia(env, mediaId, id);
   }
-  const files = form.getAll("media").filter((item) => item instanceof File && item.size > 0);
+  const files = form.getAll("media").filter(isUploadedFile);
   await saveMediaFiles(env, id, files);
   return json({ memoir: await getSerializedMemoir(env, id), redirect: "/" });
 }
@@ -267,6 +270,10 @@ function formValues(form) {
     location: String(form.get("location") || "").trim().slice(0, 120),
     mood: String(form.get("mood") || "").trim().slice(0, 60),
   };
+}
+
+function isUploadedFile(item) {
+  return Boolean(item && typeof item === "object" && typeof item.arrayBuffer === "function" && typeof item.stream === "function" && Number(item.size || 0) > 0);
 }
 
 async function saveMediaFiles(env, memoirId, files) {
@@ -430,6 +437,323 @@ async function exportBackup(env) {
   return json({ format: "memoirs-sites-json-v1", exportedAt: new Date().toISOString(), memoirs }, 200, {
     "content-disposition": `attachment; filename="memoirs-sites-backup-${Date.now()}.json"`,
   });
+}
+
+async function importBackup(request, env) {
+  if (request.method !== "POST") {
+    return json({ errors: { backup: ["请使用 POST 上传备份 ZIP。"] } }, 405);
+  }
+  try {
+    const form = await request.formData();
+    const upload = form.get("backup");
+    const imported = await importBackupZip(env, upload);
+    return json({ imported, stats: await archiveStats(env) });
+  } catch (error) {
+    return json({ errors: { backup: [error?.message || "导入失败，请确认备份文件完整后再试。"] } }, 400);
+  }
+}
+
+async function importBackupZip(env, upload) {
+  if (!isUploadedFile(upload)) {
+    throw new Error("请选择要导入的备份 ZIP 文件。");
+  }
+  if (!upload.size) {
+    throw new Error("上传的备份文件是空的。");
+  }
+  if (!env.MEDIA) {
+    throw new Error("Sites R2 media binding is not available yet.");
+  }
+
+  let zip;
+  try {
+    zip = await readZipFile(upload);
+  } catch (error) {
+    throw new Error(error?.message || "请上传有效的备份 ZIP 文件。");
+  }
+
+  const manifest = await readBackupJson(zip, "manifest.json");
+  if (manifest.app !== "Memoirs" || manifest.formatVersion !== BACKUP_FORMAT_VERSION) {
+    throw new Error("请上传由本应用导出的备份 ZIP。");
+  }
+  const memoirsPayload = await readBackupJson(zip, "memoirs.json");
+  const prepared = await prepareBackupMemoirs(zip, memoirsPayload.memoirs);
+  const writtenKeys = [];
+  const insertedMemoirIds = [];
+  let importedMedia = 0;
+
+  try {
+    for (const record of prepared) {
+      const memoirId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      await env.DB.prepare(
+        `INSERT INTO memoirs (id, title, story, memory_date, location, mood, deleted_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)`,
+      ).bind(memoirId, record.title, record.story, record.memoryDate, record.location, record.mood, now, now).run();
+      insertedMemoirIds.push(memoirId);
+
+      for (const media of record.media) {
+        const mediaId = crypto.randomUUID();
+        const objectKey = `memoirs/${memoirId}/${mediaId}-${media.storageFilename}`;
+        const bytes = await zip.read(media.archivePath);
+        await env.MEDIA.put(objectKey, bytes, {
+          httpMetadata: { contentType: media.mimeType || "application/octet-stream" },
+        });
+        writtenKeys.push(objectKey);
+        await env.DB.prepare(
+          `INSERT INTO media_items (memoir_id, object_key, original_filename, media_type, mime_type, size, uploaded_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ).bind(memoirId, objectKey, media.originalFilename, media.mediaType, media.mimeType, media.fileSize, new Date().toISOString()).run();
+        importedMedia += 1;
+      }
+    }
+  } catch (error) {
+    for (const key of writtenKeys) {
+      try {
+        await env.MEDIA.delete(key);
+      } catch {}
+    }
+    for (const id of insertedMemoirIds) {
+      try {
+        await env.DB.prepare("DELETE FROM media_items WHERE memoir_id = ?").bind(id).run();
+        await env.DB.prepare("DELETE FROM memoirs WHERE id = ?").bind(id).run();
+      } catch {}
+    }
+    throw new Error(error?.message || "服务器保存备份媒体失败，可能是云端存储空间不足。");
+  }
+
+  return { memoirs: prepared.length, media: importedMedia };
+}
+
+async function readBackupJson(zip, memberName) {
+  if (!zip.has(memberName)) {
+    throw new Error(`备份文件缺少 ${memberName}。`);
+  }
+  try {
+    const text = new TextDecoder().decode(await zip.read(memberName));
+    const payload = JSON.parse(text);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new Error();
+    }
+    return payload;
+  } catch (error) {
+    throw new Error(`${memberName} 不是有效的 JSON。`);
+  }
+}
+
+async function prepareBackupMemoirs(zip, memoirsPayload) {
+  if (!Array.isArray(memoirsPayload)) {
+    throw new Error("memoirs.json 缺少回忆列表。");
+  }
+
+  const prepared = [];
+  let memoirIndex = 0;
+  for (const memoirRecord of memoirsPayload) {
+    memoirIndex += 1;
+    if (!memoirRecord || typeof memoirRecord !== "object" || Array.isArray(memoirRecord)) {
+      throw new Error("memoirs.json 中存在格式不正确的回忆记录。");
+    }
+    const mediaRecords = memoirRecord.media || [];
+    if (!Array.isArray(mediaRecords)) {
+      throw new Error("备份回忆中的媒体列表格式不正确。");
+    }
+
+    const media = [];
+    let mediaIndex = 0;
+    for (const mediaRecord of mediaRecords) {
+      mediaIndex += 1;
+      if (!mediaRecord || typeof mediaRecord !== "object" || Array.isArray(mediaRecord)) {
+        throw new Error("备份回忆中的媒体记录格式不正确。");
+      }
+      const archivePath = cleanBackupArchivePath(mediaRecord.archivePath);
+      const entry = zip.entry(archivePath);
+      if (!entry) {
+        throw new Error(`备份缺少媒体文件：${archivePath}`);
+      }
+      if (entry.directory) {
+        throw new Error(`备份媒体路径不是文件：${archivePath}`);
+      }
+
+      const originalFilename = backupText(mediaRecord.originalFilename, 255) || archivePath.split("/").pop() || `media-${memoirIndex}-${mediaIndex}`;
+      const storageFilename = safeFilename(originalFilename).slice(0, 120) || `media-${memoirIndex}-${mediaIndex}`;
+      const { mediaType, mimeType } = backupMediaClassification(mediaRecord, originalFilename);
+      media.push({
+        archivePath,
+        originalFilename,
+        storageFilename,
+        mediaType,
+        mimeType,
+        fileSize: entry.uncompressedSize,
+      });
+    }
+
+    prepared.push({
+      title: backupText(memoirRecord.title, 120) || `导入的回忆 ${memoirIndex}`,
+      story: backupText(memoirRecord.story, null, false),
+      memoryDate: backupImportDate(memoirRecord.memoryDate),
+      location: backupText(memoirRecord.location, 120),
+      mood: backupText(memoirRecord.mood, 60),
+      media,
+    });
+  }
+  return prepared;
+}
+
+function cleanBackupArchivePath(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("备份媒体缺少文件路径。");
+  }
+  const text = value.replaceAll("\\", "/").trim();
+  const parts = text.split("/");
+  if (text.startsWith("/") || text.endsWith("/") || !text.startsWith("media/") || parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error("备份媒体文件路径不安全。");
+  }
+  return text;
+}
+
+function backupText(value, maxLength = null, strip = true) {
+  let text = value === null || value === undefined ? "" : String(value);
+  if (strip) text = text.trim();
+  return maxLength === null ? text : text.slice(0, maxLength);
+}
+
+function backupImportDate(value) {
+  const text = backupText(value);
+  if (!text) return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw new Error(`备份中存在无法识别的回忆日期：${text}`);
+  }
+  const date = new Date(`${text}T00:00:00Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== text) {
+    throw new Error(`备份中存在无法识别的回忆日期：${text}`);
+  }
+  return text;
+}
+
+function backupMediaClassification(record, originalFilename) {
+  const explicitType = backupText(record.mediaType);
+  const guessedMime = guessMimeType(originalFilename);
+  const mimeType = backupText(record.mimeType) || guessedMime || "";
+  const extension = fileExtension(originalFilename);
+  if (explicitType === "image" || explicitType === "video") {
+    return { mediaType: explicitType, mimeType };
+  }
+  if (mimeType.startsWith("image/") || IMAGE_EXTENSIONS.has(extension)) {
+    return { mediaType: "image", mimeType };
+  }
+  if (mimeType.startsWith("video/") || VIDEO_EXTENSIONS.has(extension)) {
+    return { mediaType: "video", mimeType };
+  }
+  throw new Error(`备份中包含不支持的媒体类型：${originalFilename}`);
+}
+
+function guessMimeType(filename) {
+  const extension = fileExtension(filename);
+  const types = {
+    ".apng": "image/apng",
+    ".avif": "image/avif",
+    ".gif": "image/gif",
+    ".heic": "image/heic",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".m4v": "video/x-m4v",
+    ".mov": "video/quicktime",
+    ".mp4": "video/mp4",
+    ".mpeg": "video/mpeg",
+    ".webm": "video/webm",
+  };
+  return types[extension] || "";
+}
+
+function fileExtension(filename) {
+  const match = String(filename || "").toLowerCase().match(/\.[^.\\/]+$/);
+  return match ? match[0] : "";
+}
+
+async function readZipFile(file) {
+  const data = new Uint8Array(await file.arrayBuffer());
+  const entries = parseZipEntries(data);
+  return {
+    has(name) {
+      return entries.has(name);
+    },
+    entry(name) {
+      return entries.get(name) || null;
+    },
+    async read(name) {
+      const entry = entries.get(name);
+      if (!entry) throw new Error(`备份文件缺少 ${name}。`);
+      return inflateZipEntry(data, entry);
+    },
+  };
+}
+
+function parseZipEntries(data) {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const eocdOffset = findEndOfCentralDirectory(view);
+  if (eocdOffset < 0) throw new Error("请上传有效的备份 ZIP 文件。");
+  const entryCount = view.getUint16(eocdOffset + 10, true);
+  const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true);
+  const entries = new Map();
+  let offset = centralDirectoryOffset;
+  const decoder = new TextDecoder();
+
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(offset, true) !== 0x02014b50) {
+      throw new Error("备份 ZIP 已损坏或无法读取。");
+    }
+    const flags = view.getUint16(offset + 8, true);
+    const compression = view.getUint16(offset + 10, true);
+    const compressedSize = view.getUint32(offset + 20, true);
+    const uncompressedSize = view.getUint32(offset + 24, true);
+    const nameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const localHeaderOffset = view.getUint32(offset + 42, true);
+    const nameBytes = data.subarray(offset + 46, offset + 46 + nameLength);
+    const name = decoder.decode(nameBytes);
+    entries.set(name, {
+      name,
+      flags,
+      compression,
+      compressedSize,
+      uncompressedSize,
+      localHeaderOffset,
+      directory: name.endsWith("/"),
+    });
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+function findEndOfCentralDirectory(view) {
+  const minOffset = Math.max(0, view.byteLength - 65557);
+  for (let offset = view.byteLength - 22; offset >= minOffset; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) return offset;
+  }
+  return -1;
+}
+
+async function inflateZipEntry(data, entry) {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const offset = entry.localHeaderOffset;
+  if (view.getUint32(offset, true) !== 0x04034b50) {
+    throw new Error("备份 ZIP 已损坏或无法读取。");
+  }
+  const nameLength = view.getUint16(offset + 26, true);
+  const extraLength = view.getUint16(offset + 28, true);
+  const dataStart = offset + 30 + nameLength + extraLength;
+  const compressed = data.subarray(dataStart, dataStart + entry.compressedSize);
+  if (entry.compression === 0) return compressed;
+  if (entry.compression !== 8) {
+    throw new Error(`备份 ZIP 使用了不支持的压缩格式：${entry.name}`);
+  }
+  if (typeof DecompressionStream !== "function") {
+    throw new Error("当前 Sites Worker 不支持解压 ZIP 内容。");
+  }
+  const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 async function getSerializedMemoir(env, id, limit = 1000, offset = 0) {

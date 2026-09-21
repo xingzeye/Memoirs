@@ -4,12 +4,13 @@
 
 项目默认适合本地使用，也已经准备好部署到 Zeabur，并可通过 Neon PostgreSQL 和持久化 Volume 保存生产数据与上传文件。
 
-当前另有一个 OpenAI Sites 版本配置在 `.openai/hosting.json`、`worker/` 与 `dist/`。Sites 版使用 Worker 提供同名页面与 JSON API，并通过 D1/R2 逻辑绑定保存回忆文本和媒体；它不运行 Python/Django，备份 ZIP 导入、手机扫码上传和 Django Admin 仍属于原 Django 部署能力。
+当前另有一个 OpenAI Sites 版本配置在 `.openai/hosting.json`、`worker/` 与 `dist/`。Sites 版使用 Worker 提供同名页面与 JSON API，并通过 D1/R2 逻辑绑定保存回忆文本和媒体；它不运行 Python/Django，已支持导入 Django 版导出的备份 ZIP，手机扫码上传和 Django Admin 仍属于原 Django 部署能力。
 
 ## 使用文档
 
 - [普通用户使用手册](USER_GUIDE.md)：登录、记录回忆、上传媒体、相册、回收站和备份导入导出。
 - [管理员与部署维护手册](ADMIN_GUIDE.md)：本地运行、环境变量、Zeabur 部署、备份机制和故障排查。
+- [OpenAI Sites 部署流程](SITES_DEPLOYMENT.md)：Sites 版 Worker 后端、D1/R2 绑定、构建打包、发布验证和常见问题。
 
 ## 功能
 

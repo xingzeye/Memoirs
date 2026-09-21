@@ -9,7 +9,7 @@
 
 `忆往昔` 是一个基于 Django 的私人回忆管理应用。项目面向个人或小范围私密使用，核心目标是让登录用户保存、浏览、搜索、编辑和删除自己的回忆，并为每条回忆附加照片或视频。
 
-项目同时包含一个 OpenAI Sites 版本：`.openai/hosting.json` 记录 Sites 项目 ID 和逻辑 D1/R2 绑定，`worker/index.js` 是 Cloudflare Worker 风格的后端入口，`dist/server/index.js` 与 `dist/client/static/frontend/` 是发布产物。Sites 版不运行 Python/Django，而是提供兼容 React 前端的页面、JSON API、D1 回忆表和 R2 媒体对象存储。当前 Sites 版已覆盖回忆文本 CRUD、回收站、相册读取和媒体上传基础路径；备份 ZIP 导入、手机扫码上传和 Django Admin 尚未迁移。
+项目同时包含一个 OpenAI Sites 版本：`.openai/hosting.json` 记录 Sites 项目 ID 和逻辑 D1/R2 绑定，`worker/index.js` 是 Cloudflare Worker 风格的后端入口，`dist/server/index.js` 与 `dist/client/static/frontend/` 是发布产物。Sites 版不运行 Python/Django，而是提供兼容 React 前端的页面、JSON API、D1 回忆表和 R2 媒体对象存储。当前 Sites 版已覆盖回忆文本 CRUD、回收站、相册读取、媒体上传基础路径，以及 Django 版备份 ZIP 导入；手机扫码上传和 Django Admin 尚未迁移。
 
 项目当前采用“本地优先 + 可公网部署”的设计：
 
@@ -443,7 +443,9 @@ media/<memoir_id>/<media_id>-<safe-original-filename>
 /memoirs/import/
 ```
 
-`memoir_import` 只接受 POST 上传字段 `backup`。后端会校验 `manifest.json` 的应用名和格式版本，读取 `memoirs.json` 与 `media/*` 原始文件，并在一个事务中导入：若核心 JSON 损坏、格式不匹配或引用的媒体缺失，本次导入会返回错误且不创建任何回忆。导入时不会复用备份里的旧 UUID，避免覆盖或冲突。大文件导入会直接从 ZIP 成员流式写入媒体存储，不再把上传 ZIP 或单个视频整体读入内存，也不再通过 `testzip()` 预扫描完整 ZIP，从而降低云端导入大视频备份时的超时和内存压力。
+`memoir_import` 只接受 POST 上传字段 `backup`。Django 后端会校验 `manifest.json` 的应用名和格式版本，读取 `memoirs.json` 与 `media/*` 原始文件，并在一个事务中导入：若核心 JSON 损坏、格式不匹配或引用的媒体缺失，本次导入会返回错误且不创建任何回忆。导入时不会复用备份里的旧 UUID，避免覆盖或冲突。大文件导入会直接从 ZIP 成员流式写入媒体存储，不再把上传 ZIP 或单个视频整体读入内存，也不再通过 `testzip()` 预扫描完整 ZIP，从而降低云端导入大视频备份时的超时和内存压力。
+
+Sites Worker 后端同样接收 `/memoirs/import/` 的 `backup` 字段，并兼容 Django 版 ZIP 结构：它读取 ZIP 中央目录，校验 `manifest.json`、`memoirs.json` 和 `media/*` 引用，把回忆写入 D1 的 `memoirs` 表，把媒体写入 R2 绑定 `MEDIA` 并在 D1 的 `media_items` 表记录元数据。Sites 导入仍会生成新的回忆 ID 和媒体对象路径，不覆盖现有数据；导入过程先完成 ZIP 结构校验，写入失败时会尽量删除已写入的 R2 对象和 D1 记录。
 
 ### 2.7 新增/编辑回忆页
 
