@@ -9,7 +9,7 @@
 
 `忆往昔` 是一个基于 Django 的私人回忆管理应用。项目面向个人或小范围私密使用，核心目标是让登录用户保存、浏览、搜索、编辑和删除自己的回忆，并为每条回忆附加照片或视频。
 
-项目同时包含一个 OpenAI Sites 静态入口页：`.openai/hosting.json` 记录 Sites 项目 ID，`dist/index.html` 是当前可发布的静态入口。这个 Sites 版本只用于说明部署状态和后续迁移方向，不承载 Django 登录、数据库、媒体上传或备份导入导出能力。
+项目同时包含一个 OpenAI Sites 版本：`.openai/hosting.json` 记录 Sites 项目 ID 和逻辑 D1/R2 绑定，`worker/index.js` 是 Cloudflare Worker 风格的后端入口，`dist/server/index.js` 与 `dist/client/static/frontend/` 是发布产物。Sites 版不运行 Python/Django，而是提供兼容 React 前端的页面、JSON API、D1 回忆表和 R2 媒体对象存储。当前 Sites 版已覆盖回忆文本 CRUD、回收站、相册读取和媒体上传基础路径；备份 ZIP 导入、手机扫码上传和 Django Admin 尚未迁移。
 
 项目当前采用“本地优先 + 可公网部署”的设计：
 
