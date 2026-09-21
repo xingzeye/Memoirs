@@ -5,5 +5,9 @@
     "frontend:build": "npm run build --prefix frontend",
     "frontend:check": "npm run check --prefix frontend",
     "sites:build": "npm run frontend:build && node scripts/build-sites.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "fflate": "^0.8.3"
   }
 }

@@ -8,8 +8,8 @@ Sites 相关文件：
 
 - `.openai/hosting.json`：Sites 项目 ID 和运行时绑定声明。
 - `worker/index.js`：Cloudflare Worker 风格的后端入口。
-- `scripts/build-sites.mjs`：把 Worker 和前端产物整理到 Sites 需要的 `dist/` 结构。
-- `dist/server/index.js`：部署包中的 Worker 入口，由构建脚本生成。
+- `scripts/build-sites.mjs`：把 Worker 和前端产物整理到 Sites 需要的 `dist/` 结构，并用 esbuild 打包 Worker 依赖。
+- `dist/server/index.js`：部署包中的 Worker 入口，由构建脚本生成，已内置 ZIP 解压依赖。
 - `dist/client/static/frontend/`：部署包中的 React/Vite 前端静态资源。
 
 当前绑定：
@@ -149,7 +149,7 @@ Worker 会在首次请求时自动建表。如果刚部署完成立刻查看，�
 
 ### 导入 ZIP 失败
 
-Sites 版只接受本应用导出的 ZIP：根目录必须包含 `manifest.json` 和 `memoirs.json`，媒体文件路径必须位于 `media/` 下。ZIP 内引用的媒体缺失、路径不安全、日期格式异常或媒体类型无法识别时，导入会拒绝整包，避免生成不完整回忆。
+Sites 版只接受本应用导出的 ZIP：根目录必须包含 `manifest.json` 和 `memoirs.json`，媒体文件路径必须位于 `media/` 下。Django 导出的 JSON 成员通常是 deflate 压缩，Worker 发布产物必须由 `npm run sites:build` 打包，确保 ZIP 解压依赖进入 `dist/server/index.js`。ZIP 内引用的媒体缺失、路径不安全、日期格式异常或媒体类型无法识别时，导入会拒绝整包，避免生成不完整回忆。
 
 ### 想恢复 Django 完整能力
 

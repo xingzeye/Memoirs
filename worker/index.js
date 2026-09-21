@@ -1,3 +1,5 @@
+import { unzipSync } from "fflate";
+
 const SESSION_USER = { id: 1, username: "Sites Owner", isStaff: true };
 const PAGE_SIZE = 20;
 const MEDIA_PAGE_SIZE = 60;
@@ -674,6 +676,12 @@ function fileExtension(filename) {
 async function readZipFile(file) {
   const data = new Uint8Array(await file.arrayBuffer());
   const entries = parseZipEntries(data);
+  let files;
+  try {
+    files = unzipSync(data);
+  } catch (error) {
+    throw new Error("请上传有效的备份 ZIP 文件。");
+  }
   return {
     has(name) {
       return entries.has(name);
@@ -684,7 +692,9 @@ async function readZipFile(file) {
     async read(name) {
       const entry = entries.get(name);
       if (!entry) throw new Error(`备份文件缺少 ${name}。`);
-      return inflateZipEntry(data, entry);
+      const content = files[name];
+      if (!content) throw new Error(`备份文件缺少 ${name}。`);
+      return content;
     },
   };
 }
@@ -733,27 +743,6 @@ function findEndOfCentralDirectory(view) {
     if (view.getUint32(offset, true) === 0x06054b50) return offset;
   }
   return -1;
-}
-
-async function inflateZipEntry(data, entry) {
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const offset = entry.localHeaderOffset;
-  if (view.getUint32(offset, true) !== 0x04034b50) {
-    throw new Error("备份 ZIP 已损坏或无法读取。");
-  }
-  const nameLength = view.getUint16(offset + 26, true);
-  const extraLength = view.getUint16(offset + 28, true);
-  const dataStart = offset + 30 + nameLength + extraLength;
-  const compressed = data.subarray(dataStart, dataStart + entry.compressedSize);
-  if (entry.compression === 0) return compressed;
-  if (entry.compression !== 8) {
-    throw new Error(`备份 ZIP 使用了不支持的压缩格式：${entry.name}`);
-  }
-  if (typeof DecompressionStream !== "function") {
-    throw new Error("当前 Sites Worker 不支持解压 ZIP 内容。");
-  }
-  const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 async function getSerializedMemoir(env, id, limit = 1000, offset = 0) {
