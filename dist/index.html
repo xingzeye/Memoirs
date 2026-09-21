@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Memoirs | 私人回忆库</title>
+    <meta
+      name="description"
+      content="Memoirs 私人回忆管理应用的 Sites 入口页。完整 Django 应用仍需要迁移后端、数据库和媒体存储。"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1f2924;
+        --muted: #637169;
+        --paper: #f8f3e9;
+        --panel: #fffaf1;
+        --green: #173d33;
+        --green-soft: #dce8df;
+        --line: #d8cbb8;
+        --gold: #b58a4a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family:
+          ui-serif, "Noto Serif SC", "Songti SC", Georgia, "Times New Roman",
+          serif;
+        color: var(--ink);
+        background:
+          linear-gradient(120deg, rgba(23, 61, 51, 0.12), transparent 42%),
+          radial-gradient(circle at 82% 12%, rgba(181, 138, 74, 0.18), transparent 28%),
+          var(--paper);
+      }
+
+      main {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(260px, 0.72fr) minmax(320px, 1fr);
+      }
+
+      .sidebar {
+        background: var(--green);
+        color: #f7efe0;
+        padding: clamp(28px, 5vw, 72px);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 40px;
+      }
+
+      .mark {
+        width: 52px;
+        height: 52px;
+        border: 1px solid rgba(247, 239, 224, 0.45);
+        display: grid;
+        place-items: center;
+        font-size: 26px;
+        letter-spacing: 0;
+      }
+
+      .sidebar h1 {
+        margin: 36px 0 16px;
+        font-size: clamp(34px, 5vw, 72px);
+        line-height: 0.96;
+        letter-spacing: 0;
+      }
+
+      .sidebar p {
+        margin: 0;
+        max-width: 420px;
+        color: rgba(247, 239, 224, 0.74);
+        font-size: 17px;
+        line-height: 1.85;
+      }
+
+      .meta {
+        display: grid;
+        gap: 10px;
+        color: rgba(247, 239, 224, 0.7);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .content {
+        padding: clamp(28px, 6vw, 88px);
+        display: flex;
+        align-items: center;
+      }
+
+      .panel {
+        width: min(760px, 100%);
+        background: rgba(255, 250, 241, 0.88);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: clamp(24px, 4vw, 48px);
+        box-shadow: 0 28px 70px rgba(31, 41, 36, 0.12);
+      }
+
+      .eyebrow {
+        margin: 0 0 12px;
+        color: var(--gold);
+        font: 700 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h2 {
+        margin: 0 0 18px;
+        font-size: clamp(25px, 3vw, 38px);
+        line-height: 1.24;
+        letter-spacing: 0;
+      }
+
+      .lead {
+        margin: 0 0 28px;
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.9;
+      }
+
+      .status {
+        display: grid;
+        gap: 14px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .status li {
+        border-top: 1px solid var(--line);
+        padding-top: 14px;
+        display: grid;
+        gap: 4px;
+      }
+
+      .status strong {
+        font: 700 15px/1.5 ui-sans-serif, system-ui, sans-serif;
+      }
+
+      .status span {
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.7;
+      }
+
+      .note {
+        margin-top: 30px;
+        padding: 16px 18px;
+        border-radius: 8px;
+        background: var(--green-soft);
+        color: #294f43;
+        font: 500 14px/1.7 ui-sans-serif, system-ui, sans-serif;
+      }
+
+      @media (max-width: 820px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          min-height: 44vh;
+        }
+
+        .content {
+          align-items: stretch;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="sidebar" aria-label="Memoirs">
+        <div>
+          <div class="mark" aria-hidden="true">忆</div>
+          <h1>Memoirs</h1>
+          <p>一个为私人回忆、照片、视频和备份准备的纪念册应用。</p>
+        </div>
+        <div class="meta">
+          <span>Sites URL 已启用</span>
+          <span>Django 完整应用待迁移</span>
+        </div>
+      </section>
+
+      <section class="content">
+        <div class="panel">
+          <p class="eyebrow">Deployment status</p>
+          <h2>Sites 版本已作为恢复入口发布</h2>
+          <p class="lead">
+            原项目是 Django 后端应用，依赖服务进程、数据库、登录会话和媒体文件存储。
+            当前 Sites 发布先提供可访问入口；完整功能需要把后端能力迁移到 Sites 支持的运行时与存储。
+          </p>
+
+          <ul class="status">
+            <li>
+              <strong>已保留</strong>
+              <span>项目身份、应用说明、部署状态和后续迁移方向。</span>
+            </li>
+            <li>
+              <strong>未伪装</strong>
+              <span>这个页面不冒充完整回忆库，避免误以为登录、上传和备份已经在 Sites 上可用。</span>
+            </li>
+            <li>
+              <strong>下一步</strong>
+              <span>将 Django API、认证、媒体存储和备份逻辑迁移到 Worker、D1/R2 或其他受支持后端。</span>
+            </li>
+          </ul>
+
+          <div class="note">
+            旧的 Zeabur 部署因账号未租用 Server 无法继续；Sites 入口已不依赖 Zeabur 服务器。
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

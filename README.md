@@ -4,6 +4,8 @@
 
 项目默认适合本地使用，也已经准备好部署到 Zeabur，并可通过 Neon PostgreSQL 和持久化 Volume 保存生产数据与上传文件。
 
+当前另有一个 OpenAI Sites 静态入口页配置在 `.openai/hosting.json` 与 `dist/`。该入口页用于在没有 Zeabur Server 时提供可访问的项目恢复页；它不是完整 Django 应用迁移版，登录、数据库、上传媒体和备份功能仍依赖 Django 后端部署。
+
 ## 使用文档
 
 - [普通用户使用手册](USER_GUIDE.md)：登录、记录回忆、上传媒体、相册、回收站和备份导入导出。
