@@ -151,6 +151,8 @@ Worker 会在首次请求时自动建表。如果刚部署完成立刻查看，�
 
 Sites 版只接受本应用导出的 ZIP：根目录必须包含 `manifest.json` 和 `memoirs.json`，媒体文件路径必须位于 `media/` 下。Django 导出的 JSON 成员通常是 deflate 压缩，Worker 发布产物必须由 `npm run sites:build` 打包，确保 ZIP 解压依赖进入 `dist/server/index.js`。ZIP 内引用的媒体缺失、路径不安全、日期格式异常或媒体类型无法识别时，导入会拒绝整包，避免生成不完整回忆。
 
+当前页面默认走大备份任务协议，不再整包 POST ZIP。浏览器先读取清单，普通媒体逐文件上传，超过 24 MB 的媒体按 8 MB 分片写入 R2，全部完成后才把 D1 暂存记录发布到回忆库。进度停在某个文件时，应先检查该媒体本身是否完整；上传失败会自动取消任务并清理已上传对象。当前不支持 ZIP64，ZIP 总大小需低于 4 GB，单次最多 500 段回忆和 2000 个媒体文件。发布前可运行 `npm run sites:import-smoke` 验证浏览器端 ZIP 和分片流程。
+
 ### 想恢复 Django 完整能力
 
 Sites 版不是 Django runtime。需要 Django Admin、手机扫码上传等能力时，仍应使用 Django 部署路线，或继续把对应功能迁移到 Worker/D1/R2。

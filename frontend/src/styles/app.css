@@ -1627,6 +1627,8 @@ select:focus,
 
 .backup-import-card {
   align-items: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, auto);
 }
 
 .backup-import-form {
@@ -1664,6 +1666,42 @@ select:focus,
   block-size: 1px;
   opacity: 0;
   pointer-events: none;
+}
+
+.backup-file-size {
+  grid-column: 2;
+  margin: 0;
+  text-align: right;
+  font-size: 0.88rem;
+}
+
+.backup-import-progress {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #e4ded3;
+  padding-top: 14px;
+}
+
+.backup-progress-copy {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--ink);
+}
+
+.backup-progress-copy span {
+  min-width: 0;
+  overflow: hidden;
+  color: #65706b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-import-progress progress {
+  width: 100%;
+  height: 10px;
+  accent-color: var(--teal);
 }
 
 .backup-message {
@@ -2104,12 +2142,26 @@ select:focus,
     align-items: stretch;
   }
 
+  .backup-import-card {
+    display: flex;
+  }
+
   .backup-import-form {
     justify-content: stretch;
   }
 
   .backup-file-input {
     max-width: none;
+  }
+
+  .backup-file-size {
+    text-align: left;
+  }
+
+  .backup-progress-copy {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .backup-card .primary-button {

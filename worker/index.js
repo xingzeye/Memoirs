@@ -4,6 +4,7 @@ const SESSION_USER = { id: 1, username: "Sites Owner", isStaff: true };
 const PAGE_SIZE = 20;
 const MEDIA_PAGE_SIZE = 60;
 const BACKUP_FORMAT_VERSION = 1;
+const IMPORT_MULTIPART_THRESHOLD = 24 * 1024 * 1024;
 const IMAGE_EXTENSIONS = new Set([".apng", ".avif", ".gif", ".heic", ".jpeg", ".jpg", ".png", ".webp"]);
 const VIDEO_EXTENSIONS = new Set([".m4v", ".mov", ".mp4", ".mpeg", ".webm"]);
 
@@ -32,6 +33,41 @@ const schema = [
   )`,
   `CREATE INDEX IF NOT EXISTS memoirs_deleted_date_idx ON memoirs (deleted_at, memory_date, created_at)`,
   `CREATE INDEX IF NOT EXISTS media_memoir_idx ON media_items (memoir_id, uploaded_at)`,
+  `CREATE TABLE IF NOT EXISTS import_jobs (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'uploading',
+    expected_memoirs INTEGER NOT NULL DEFAULT 0,
+    expected_media INTEGER NOT NULL DEFAULT 0,
+    uploaded_media INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS import_job_memoirs (
+    job_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    memoir_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    story TEXT NOT NULL DEFAULT '',
+    memory_date TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL DEFAULT '',
+    mood TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (job_id, ordinal)
+  )`,
+  `CREATE TABLE IF NOT EXISTS import_job_media (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    memoir_ordinal INTEGER NOT NULL,
+    archive_path TEXT NOT NULL,
+    object_key TEXT NOT NULL,
+    original_filename TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    upload_id TEXT NOT NULL DEFAULT '',
+    UNIQUE (job_id, archive_path)
+  )`,
+  `CREATE INDEX IF NOT EXISTS import_job_media_job_idx ON import_job_media (job_id, status)`,
 ];
 
 export default {
@@ -57,7 +93,10 @@ export default {
       if (url.pathname.startsWith("/memoirs/export/")) {
         return exportBackup(env);
       }
-      if (url.pathname.startsWith("/memoirs/import/")) {
+      if (url.pathname.startsWith("/memoirs/import/jobs/")) {
+        return handleLargeImport(request, env, url);
+      }
+      if (url.pathname === "/memoirs/import/") {
         return importBackup(request, env);
       }
 
@@ -113,7 +152,12 @@ async function handlePage(request, env, url) {
     payload = await mediaGalleryPayload(env, url);
   } else if (path === "/memoirs/backup/") {
     page = "backup";
-    payload = { exportUrl: "/memoirs/export/", importUrl: "/memoirs/import/", stats: await archiveStats(env) };
+    payload = {
+      exportUrl: "/memoirs/export/",
+      importUrl: "/memoirs/import/",
+      largeImportUrl: "/memoirs/import/jobs/",
+      stats: await archiveStats(env),
+    };
   } else {
     const edit = path.match(/^\/memoirs\/([^/]+)\/edit\/$/);
     const detail = path.match(/^\/memoirs\/([^/]+)\/$/);
@@ -439,6 +483,323 @@ async function exportBackup(env) {
   return json({ format: "memoirs-sites-json-v1", exportedAt: new Date().toISOString(), memoirs }, 200, {
     "content-disposition": `attachment; filename="memoirs-sites-backup-${Date.now()}.json"`,
   });
+}
+
+async function handleLargeImport(request, env, url) {
+  const path = url.pathname;
+  if (path === "/memoirs/import/jobs/" && request.method === "POST") {
+    return startLargeImport(request, env);
+  }
+
+  const finalize = path.match(/^\/memoirs\/import\/jobs\/([^/]+)\/finalize\/$/);
+  if (finalize && request.method === "POST") return finalizeLargeImport(env, finalize[1]);
+
+  const cancel = path.match(/^\/memoirs\/import\/jobs\/([^/]+)\/cancel\/$/);
+  if (cancel && request.method === "POST") return cancelLargeImport(env, cancel[1]);
+
+  const direct = path.match(/^\/memoirs\/import\/jobs\/([^/]+)\/media\/([^/]+)\/$/);
+  if (direct && request.method === "POST") return uploadImportMedia(request, env, direct[1], direct[2]);
+
+  const multipartStart = path.match(/^\/memoirs\/import\/jobs\/([^/]+)\/media\/([^/]+)\/multipart\/$/);
+  if (multipartStart && request.method === "POST") return startImportMultipart(env, multipartStart[1], multipartStart[2]);
+
+  const multipartPart = path.match(/^\/memoirs\/import\/jobs\/([^/]+)\/media\/([^/]+)\/parts\/(\d+)\/$/);
+  if (multipartPart && request.method === "PUT") {
+    return uploadImportPart(request, env, multipartPart[1], multipartPart[2], Number(multipartPart[3]));
+  }
+
+  const multipartComplete = path.match(/^\/memoirs\/import\/jobs\/([^/]+)\/media\/([^/]+)\/complete\/$/);
+  if (multipartComplete && request.method === "POST") {
+    return completeImportMultipart(request, env, multipartComplete[1], multipartComplete[2]);
+  }
+
+  return json({ errors: { __all__: ["未找到大备份导入接口。"] } }, 404);
+}
+
+async function startLargeImport(request, env) {
+  if (!env.MEDIA) return json({ errors: { backup: ["Sites 媒体存储尚未配置。"] } }, 503);
+  let payload;
+  let jobId = "";
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ errors: { backup: ["备份清单不是有效的 JSON。"] } }, 400);
+  }
+
+  try {
+    if (payload?.manifest?.app !== "Memoirs" || payload?.manifest?.formatVersion !== BACKUP_FORMAT_VERSION) {
+      throw new Error("请上传由本应用导出的备份 ZIP。");
+    }
+    const prepared = prepareLargeImportMemoirs(payload?.memoirs);
+    const mediaCount = prepared.reduce((total, memoir) => total + memoir.media.length, 0);
+    jobId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `INSERT INTO import_jobs (id, status, expected_memoirs, expected_media, uploaded_media, created_at, updated_at)
+       VALUES (?, 'uploading', ?, ?, 0, ?, ?)`,
+    ).bind(jobId, prepared.length, mediaCount, now, now).run();
+
+    const memoirRows = [];
+    const mediaRows = [];
+    const uploadItems = [];
+    for (const [ordinal, memoir] of prepared.entries()) {
+      const memoirId = crypto.randomUUID();
+      memoirRows.push([jobId, ordinal, memoirId, memoir.title, memoir.story, memoir.memoryDate, memoir.location, memoir.mood]);
+      for (const media of memoir.media) {
+        const mediaId = crypto.randomUUID();
+        const objectKey = `memoirs/${memoirId}/${mediaId}-${media.storageFilename}`;
+        mediaRows.push([
+          mediaId,
+          jobId,
+          ordinal,
+          media.archivePath,
+          objectKey,
+          media.originalFilename,
+          media.mediaType,
+          media.mimeType,
+          media.fileSize,
+          "pending",
+          "",
+        ]);
+        uploadItems.push({
+          id: mediaId,
+          archivePath: media.archivePath,
+          size: media.fileSize,
+          mimeType: media.mimeType,
+          multipart: media.fileSize > IMPORT_MULTIPART_THRESHOLD,
+        });
+      }
+    }
+    const statements = [
+      ...bulkInsertStatements(env.DB, "import_job_memoirs", ["job_id", "ordinal", "memoir_id", "title", "story", "memory_date", "location", "mood"], memoirRows),
+      ...bulkInsertStatements(env.DB, "import_job_media", ["id", "job_id", "memoir_ordinal", "archive_path", "object_key", "original_filename", "media_type", "mime_type", "size", "status", "upload_id"], mediaRows),
+    ];
+    await runBatches(env.DB, statements);
+    return json({ jobId, media: uploadItems, multipartThreshold: IMPORT_MULTIPART_THRESHOLD }, 201);
+  } catch (error) {
+    if (jobId) {
+      try {
+        await env.DB.batch([
+          env.DB.prepare("DELETE FROM import_job_media WHERE job_id = ?").bind(jobId),
+          env.DB.prepare("DELETE FROM import_job_memoirs WHERE job_id = ?").bind(jobId),
+          env.DB.prepare("DELETE FROM import_jobs WHERE id = ?").bind(jobId),
+        ]);
+      } catch {}
+    }
+    return json({ errors: { backup: [error?.message || "无法创建导入任务。"] } }, 400);
+  }
+}
+
+function prepareLargeImportMemoirs(memoirsPayload) {
+  if (!Array.isArray(memoirsPayload)) throw new Error("memoirs.json 缺少回忆列表。");
+  if (memoirsPayload.length > 500) throw new Error("单次最多导入 500 段回忆，请拆分备份后重试。");
+  const archivePaths = new Set();
+  let totalMedia = 0;
+  return memoirsPayload.map((memoirRecord, memoirIndex) => {
+    if (!memoirRecord || typeof memoirRecord !== "object" || Array.isArray(memoirRecord)) {
+      throw new Error("memoirs.json 中存在格式不正确的回忆记录。");
+    }
+    const mediaRecords = memoirRecord.media || [];
+    if (!Array.isArray(mediaRecords)) throw new Error("备份回忆中的媒体列表格式不正确。");
+    totalMedia += mediaRecords.length;
+    if (totalMedia > 2000) throw new Error("单次最多导入 2000 个媒体文件，请拆分备份后重试。");
+
+    const media = mediaRecords.map((mediaRecord, mediaIndex) => {
+      if (!mediaRecord || typeof mediaRecord !== "object" || Array.isArray(mediaRecord)) {
+        throw new Error("备份回忆中的媒体记录格式不正确。");
+      }
+      const archivePath = cleanBackupArchivePath(mediaRecord.archivePath);
+      if (archivePaths.has(archivePath)) throw new Error(`备份中存在重复媒体路径：${archivePath}`);
+      archivePaths.add(archivePath);
+      const fileSize = Number(mediaRecord.archiveSize);
+      if (!Number.isSafeInteger(fileSize) || fileSize < 0) throw new Error(`无法确认媒体文件大小：${archivePath}`);
+      const originalFilename = backupText(mediaRecord.originalFilename, 255) || archivePath.split("/").pop() || `media-${memoirIndex + 1}-${mediaIndex + 1}`;
+      const storageFilename = safeFilename(originalFilename).slice(0, 120) || `media-${memoirIndex + 1}-${mediaIndex + 1}`;
+      const { mediaType, mimeType } = backupMediaClassification(mediaRecord, originalFilename);
+      return { archivePath, originalFilename, storageFilename, mediaType, mimeType, fileSize };
+    });
+
+    return {
+      title: backupText(memoirRecord.title, 120) || `导入的回忆 ${memoirIndex + 1}`,
+      story: backupText(memoirRecord.story, null, false),
+      memoryDate: backupImportDate(memoirRecord.memoryDate),
+      location: backupText(memoirRecord.location, 120),
+      mood: backupText(memoirRecord.mood, 60),
+      media,
+    };
+  });
+}
+
+async function runBatches(db, statements, size = 50) {
+  for (let index = 0; index < statements.length; index += size) {
+    await db.batch(statements.slice(index, index + size));
+  }
+}
+
+function bulkInsertStatements(db, table, columns, rows) {
+  if (!rows.length) return [];
+  const rowsPerStatement = Math.max(1, Math.floor(100 / columns.length));
+  const statements = [];
+  for (let index = 0; index < rows.length; index += rowsPerStatement) {
+    const chunk = rows.slice(index, index + rowsPerStatement);
+    const placeholders = chunk.map(() => `(${columns.map(() => "?").join(", ")})`).join(", ");
+    statements.push(
+      db.prepare(`INSERT INTO ${table} (${columns.join(", ")}) VALUES ${placeholders}`)
+        .bind(...chunk.flat()),
+    );
+  }
+  return statements;
+}
+
+async function getImportMedia(env, jobId, mediaId) {
+  return env.DB.prepare(
+    `SELECT im.*, ij.status AS job_status
+     FROM import_job_media im JOIN import_jobs ij ON ij.id = im.job_id
+     WHERE im.job_id = ? AND im.id = ?`,
+  ).bind(jobId, mediaId).first();
+}
+
+async function uploadImportMedia(request, env, jobId, mediaId) {
+  const media = await getImportMedia(env, jobId, mediaId);
+  if (!media) return json({ errors: { backup: ["导入任务或媒体不存在。"] } }, 404);
+  if (media.job_status !== "uploading") return json({ errors: { backup: ["导入任务已结束。"] } }, 409);
+  if (media.status === "uploaded") return json({ uploaded: true, mediaId });
+  const contentLength = Number(request.headers.get("content-length") || -1);
+  if (contentLength >= 0 && contentLength !== Number(media.size)) {
+    return json({ errors: { backup: ["媒体文件大小与备份清单不一致。"] } }, 400);
+  }
+  await env.MEDIA.put(media.object_key, request.body || new Uint8Array(), {
+    httpMetadata: { contentType: media.mime_type || "application/octet-stream" },
+  });
+  const stored = await env.MEDIA.head(media.object_key);
+  if (!stored || Number(stored.size) !== Number(media.size)) {
+    await env.MEDIA.delete(media.object_key);
+    return json({ errors: { backup: ["媒体上传不完整，请重试。"] } }, 400);
+  }
+  await markImportMediaUploaded(env, jobId, mediaId);
+  return json({ uploaded: true, mediaId });
+}
+
+async function startImportMultipart(env, jobId, mediaId) {
+  const media = await getImportMedia(env, jobId, mediaId);
+  if (!media) return json({ errors: { backup: ["导入任务或媒体不存在。"] } }, 404);
+  if (media.job_status !== "uploading") return json({ errors: { backup: ["导入任务已结束。"] } }, 409);
+  if (media.status === "uploaded") return json({ uploaded: true, mediaId });
+  if (media.upload_id) return json({ uploadId: media.upload_id, mediaId });
+  const upload = await env.MEDIA.createMultipartUpload(media.object_key, {
+    httpMetadata: { contentType: media.mime_type || "application/octet-stream" },
+  });
+  await env.DB.prepare("UPDATE import_job_media SET upload_id = ?, status = 'multipart' WHERE job_id = ? AND id = ?")
+    .bind(upload.uploadId, jobId, mediaId).run();
+  return json({ uploadId: upload.uploadId, mediaId }, 201);
+}
+
+async function uploadImportPart(request, env, jobId, mediaId, partNumber) {
+  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10000) {
+    return json({ errors: { backup: ["媒体分片编号无效。"] } }, 400);
+  }
+  const media = await getImportMedia(env, jobId, mediaId);
+  if (!media?.upload_id || media.status !== "multipart" || media.job_status !== "uploading") {
+    return json({ errors: { backup: ["媒体分片上传尚未初始化。"] } }, 409);
+  }
+  const upload = env.MEDIA.resumeMultipartUpload(media.object_key, media.upload_id);
+  const part = await upload.uploadPart(partNumber, request.body || new Uint8Array());
+  return json({ partNumber: part.partNumber, etag: part.etag });
+}
+
+async function completeImportMultipart(request, env, jobId, mediaId) {
+  const media = await getImportMedia(env, jobId, mediaId);
+  if (!media) return json({ errors: { backup: ["导入任务或媒体不存在。"] } }, 404);
+  if (media.status === "uploaded") return json({ uploaded: true, mediaId });
+  if (!media.upload_id || media.status !== "multipart" || media.job_status !== "uploading") {
+    return json({ errors: { backup: ["媒体分片上传尚未初始化。"] } }, 409);
+  }
+  const payload = await request.json();
+  const parts = Array.isArray(payload?.parts) ? payload.parts : [];
+  if (!parts.length || parts.some((part) => !Number.isInteger(part?.partNumber) || typeof part?.etag !== "string")) {
+    return json({ errors: { backup: ["媒体分片清单无效。"] } }, 400);
+  }
+  const upload = env.MEDIA.resumeMultipartUpload(media.object_key, media.upload_id);
+  await upload.complete(parts);
+  const stored = await env.MEDIA.head(media.object_key);
+  if (!stored || Number(stored.size) !== Number(media.size)) {
+    await env.MEDIA.delete(media.object_key);
+    await env.DB.prepare("UPDATE import_job_media SET status = 'pending', upload_id = '' WHERE job_id = ? AND id = ?")
+      .bind(jobId, mediaId).run();
+    return json({ errors: { backup: ["媒体分片合并后的大小不正确，请重试。"] } }, 400);
+  }
+  await markImportMediaUploaded(env, jobId, mediaId);
+  return json({ uploaded: true, mediaId });
+}
+
+async function markImportMediaUploaded(env, jobId, mediaId) {
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE import_job_media SET status = 'uploaded', upload_id = '' WHERE job_id = ? AND id = ?")
+      .bind(jobId, mediaId),
+    env.DB.prepare(
+      `UPDATE import_jobs SET uploaded_media = (
+         SELECT COUNT(*) FROM import_job_media WHERE job_id = ? AND status = 'uploaded'
+       ), updated_at = ? WHERE id = ?`,
+    ).bind(jobId, now, jobId),
+  ]);
+}
+
+async function finalizeLargeImport(env, jobId) {
+  const job = await env.DB.prepare("SELECT * FROM import_jobs WHERE id = ?").bind(jobId).first();
+  if (!job) return json({ errors: { backup: ["导入任务不存在。"] } }, 404);
+  if (job.status === "complete") {
+    return json({ imported: { memoirs: Number(job.expected_memoirs), media: Number(job.expected_media) }, stats: await archiveStats(env) });
+  }
+  const pending = await env.DB.prepare("SELECT COUNT(*) AS count FROM import_job_media WHERE job_id = ? AND status != 'uploaded'").bind(jobId).first();
+  if (Number(pending?.count || 0) > 0) {
+    return json({ errors: { backup: [`还有 ${pending.count} 个媒体文件未上传完成。`] } }, 409);
+  }
+  const memoirRows = await env.DB.prepare("SELECT * FROM import_job_memoirs WHERE job_id = ? ORDER BY ordinal").bind(jobId).all();
+  const mediaRows = await env.DB.prepare("SELECT * FROM import_job_media WHERE job_id = ? ORDER BY memoir_ordinal, archive_path").bind(jobId).all();
+  const now = new Date().toISOString();
+  const memoirByOrdinal = new Map();
+  const finalMemoirRows = [];
+  const finalMediaRows = [];
+  for (const memoir of memoirRows.results || []) {
+    memoirByOrdinal.set(Number(memoir.ordinal), memoir);
+    finalMemoirRows.push([memoir.memoir_id, memoir.title, memoir.story, memoir.memory_date, memoir.location, memoir.mood, "", now, now]);
+  }
+  for (const media of mediaRows.results || []) {
+    const memoir = memoirByOrdinal.get(Number(media.memoir_ordinal));
+    if (!memoir) return json({ errors: { backup: ["导入任务中的回忆映射已损坏。"] } }, 500);
+    finalMediaRows.push([memoir.memoir_id, media.object_key, media.original_filename, media.media_type, media.mime_type, media.size, now]);
+  }
+  const statements = [
+    ...bulkInsertStatements(env.DB, "memoirs", ["id", "title", "story", "memory_date", "location", "mood", "deleted_at", "created_at", "updated_at"], finalMemoirRows),
+    ...bulkInsertStatements(env.DB, "media_items", ["memoir_id", "object_key", "original_filename", "media_type", "mime_type", "size", "uploaded_at"], finalMediaRows),
+  ];
+  statements.push(env.DB.prepare("UPDATE import_jobs SET status = 'complete', updated_at = ? WHERE id = ?").bind(now, jobId));
+  await env.DB.batch(statements);
+  return json({
+    imported: { memoirs: Number(job.expected_memoirs), media: Number(job.expected_media) },
+    stats: await archiveStats(env),
+  });
+}
+
+async function cancelLargeImport(env, jobId) {
+  const rows = await env.DB.prepare("SELECT object_key, upload_id FROM import_job_media WHERE job_id = ?").bind(jobId).all();
+  for (const media of rows.results || []) {
+    if (media.upload_id) {
+      try {
+        await env.MEDIA.resumeMultipartUpload(media.object_key, media.upload_id).abort();
+      } catch {}
+    }
+    try {
+      await env.MEDIA.delete(media.object_key);
+    } catch {}
+  }
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM import_job_media WHERE job_id = ?").bind(jobId),
+    env.DB.prepare("DELETE FROM import_job_memoirs WHERE job_id = ?").bind(jobId),
+    env.DB.prepare("DELETE FROM import_jobs WHERE id = ?").bind(jobId),
+  ]);
+  return json({ cancelled: true });
 }
 
 async function importBackup(request, env) {

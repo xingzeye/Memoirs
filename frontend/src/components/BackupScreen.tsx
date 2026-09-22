@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { AlertCircle, ArrowLeft, CheckCircle2, DatabaseBackup, Download, FileJson, FileText, Images, ShieldCheck, Upload } from "lucide-react";
-import { apiForm } from "../lib/api";
+import { apiForm, formatBytes } from "../lib/api";
+import { importLargeBackup, type BackupImportProgress } from "../lib/largeBackupImport";
 import type { AppSession, FormErrors } from "../lib/types";
 import { Brand } from "./Brand";
 
 type BackupPayload = {
   exportUrl?: string;
   importUrl?: string;
+  largeImportUrl?: string;
   stats?: {
     memoirs: number;
     media: number;
@@ -36,35 +38,56 @@ export function BackupScreen({ session, payload, onLogout }: BackupScreenProps) 
   const [errors, setErrors] = useState<FormErrors>({});
   const [result, setResult] = useState<BackupImportResponse["imported"] | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [progress, setProgress] = useState<BackupImportProgress | null>(null);
   const exportUrl = payload.exportUrl || session.routes.exportBackup || "/memoirs/export/";
   const importUrl = payload.importUrl || session.routes.importBackup || "/memoirs/import/";
   const importErrors = [...(errors.backup || []), ...(errors.__all__ || [])];
+  const progressPercent = progress
+    ? progress.totalBytes > 0
+      ? Math.round((progress.uploadedBytes / progress.totalBytes) * 100)
+      : progress.totalFiles > 0
+        ? Math.round((progress.completedFiles / progress.totalFiles) * 100)
+        : 0
+    : 0;
 
   const submitImport = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const form = event.currentTarget;
     if (isImporting) {
       return;
     }
     setErrors({});
     setResult(null);
+    setProgress(null);
 
     if (!selectedFile) {
       setErrors({ backup: ["请选择一个从本应用导出的 ZIP 备份文件。"] });
       return;
     }
 
-    const formData = new FormData();
-    formData.append("backup", selectedFile);
     setIsImporting(true);
     try {
-      const response = await apiForm<BackupImportResponse>(importUrl, session.csrfToken, formData);
+      let response: BackupImportResponse;
+      if (payload.largeImportUrl) {
+        response = await importLargeBackup({
+          file: selectedFile,
+          startUrl: payload.largeImportUrl,
+          csrfToken: session.csrfToken,
+          onProgress: setProgress,
+        });
+      } else {
+        const formData = new FormData();
+        formData.append("backup", selectedFile);
+        response = await apiForm<BackupImportResponse>(importUrl, session.csrfToken, formData);
+      }
       setErrors({});
       setResult(response.imported || { memoirs: 0, media: 0 });
       if (response.stats) {
         setStats(response.stats);
       }
       setSelectedFile(null);
-      event.currentTarget.reset();
+      setProgress(null);
+      form.reset();
     } catch (error) {
       const payloadError = error as { errors?: FormErrors };
       setErrors(payloadError.errors || { __all__: ["导入失败，请确认备份文件完整后再试。"] });
@@ -118,6 +141,7 @@ export function BackupScreen({ session, payload, onLogout }: BackupScreenProps) 
                   setSelectedFile(event.target.files?.[0] || null);
                   setErrors({});
                   setResult(null);
+                  setProgress(null);
                 }}
               />
             </label>
@@ -126,6 +150,30 @@ export function BackupScreen({ session, payload, onLogout }: BackupScreenProps) 
               {isImporting ? "正在导入..." : "导入备份"}
             </button>
           </form>
+          {selectedFile && !isImporting ? <p className="backup-file-size">文件大小：{formatBytes(selectedFile.size)}</p> : null}
+          {progress ? (
+            <div className="backup-import-progress" aria-live="polite">
+              <div className="backup-progress-copy">
+                <strong>
+                  {progress.phase === "reading"
+                    ? "正在读取备份清单"
+                    : progress.phase === "finalizing"
+                      ? "正在完成导入"
+                      : `正在上传 ${progress.completedFiles}/${progress.totalFiles}`}
+                </strong>
+                <span>
+                  {progress.phase === "uploading"
+                    ? `${formatBytes(progress.uploadedBytes)} / ${formatBytes(progress.totalBytes)}${progress.currentName ? ` · ${progress.currentName}` : ""}`
+                    : progress.phase === "finalizing"
+                      ? "媒体已上传，正在写入回忆库"
+                      : "只读取 ZIP 目录，不会一次上传整包"}
+                </span>
+              </div>
+              <progress max={100} value={progress.phase === "finalizing" ? 100 : progressPercent}>
+                {progressPercent}%
+              </progress>
+            </div>
+          ) : null}
         </section>
 
         {importErrors.length ? (

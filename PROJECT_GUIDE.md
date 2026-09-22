@@ -445,7 +445,9 @@ media/<memoir_id>/<media_id>-<safe-original-filename>
 
 `memoir_import` 只接受 POST 上传字段 `backup`。Django 后端会校验 `manifest.json` 的应用名和格式版本，读取 `memoirs.json` 与 `media/*` 原始文件，并在一个事务中导入：若核心 JSON 损坏、格式不匹配或引用的媒体缺失，本次导入会返回错误且不创建任何回忆。导入时不会复用备份里的旧 UUID，避免覆盖或冲突。大文件导入会直接从 ZIP 成员流式写入媒体存储，不再把上传 ZIP 或单个视频整体读入内存，也不再通过 `testzip()` 预扫描完整 ZIP，从而降低云端导入大视频备份时的超时和内存压力。
 
-Sites Worker 后端同样接收 `/memoirs/import/` 的 `backup` 字段，并兼容 Django 版 ZIP 结构：它读取 ZIP 中央目录，使用打包进 Worker 的 ZIP 解压逻辑读取 deflate 压缩的 `manifest.json` / `memoirs.json`，校验 `media/*` 引用，把回忆写入 D1 的 `memoirs` 表，把媒体写入 R2 绑定 `MEDIA` 并在 D1 的 `media_items` 表记录元数据。Sites 导入仍会生成新的回忆 ID 和媒体对象路径，不覆盖现有数据；导入过程先完成 ZIP 结构校验，写入失败时会尽量删除已写入的 R2 对象和 D1 记录。
+Sites 页面使用独立的大备份协议。浏览器先读取 ZIP 中央目录，只解压较小的 `manifest.json` / `memoirs.json`，并校验所有 `media/*` 引用；Django 导出的媒体成员使用 `ZIP_STORED`，因此浏览器可以直接从原 ZIP 切片读取，不需要把整包或整个大视频载入内存。页面随后通过 `/memoirs/import/jobs/` 创建暂存任务：普通媒体逐文件上传，超过 24 MB 的媒体使用 R2 multipart API 按 8 MB 分片上传。任务元数据保存在 D1 的 `import_jobs`、`import_job_memoirs` 和 `import_job_media` 表中，媒体先写入最终 R2 对象路径，但不会出现在回忆库中；所有媒体完成后，`finalize` 才以 D1 batch 写入正式 `memoirs` / `media_items` 记录并将任务标记为完成。上传阶段失败会调用 `cancel`，中止 multipart 上传并清理已写入对象，因此列表不会出现半成品回忆。
+
+大备份协议当前接受非 ZIP64 备份，总 ZIP 必须低于 4 GB；单次最多 500 段回忆、2000 个媒体文件。前端显示清单读取、媒体文件数、已上传字节和最终写入阶段。Django 部署仍使用原 `/memoirs/import/` 单请求流式导入；Worker 也保留该接口用于兼容小备份和旧客户端。
 
 ### 2.7 新增/编辑回忆页
 
