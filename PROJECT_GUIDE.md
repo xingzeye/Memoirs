@@ -449,6 +449,8 @@ Sites 页面使用独立的大备份协议。浏览器先读取 ZIP 中央目录
 
 大备份协议当前接受非 ZIP64 备份，总 ZIP 必须低于 4 GB；单次最多 500 段回忆、2000 个媒体文件。前端显示清单读取、媒体文件数、已上传字节和最终写入阶段。Django 部署仍使用原 `/memoirs/import/` 单请求流式导入；Worker 也保留该接口用于兼容小备份和旧客户端。
 
+Sites 源码构建入口是根目录 `npm run build`，它先通过前端 lockfile 安装依赖，再调用 `npm run sites:build`。根目录和 `frontend/` 的 npm lockfile 都使用公共 npm 注册表地址，避免托管平台拒绝镜像或私有依赖来源。
+
 ### 2.7 新增/编辑回忆页
 
 文件：`templates/memories/memoir_form.html`

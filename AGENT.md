@@ -3,6 +3,7 @@
 ## 最近功能变更：React/Vite 全流程前端
 
 - 2026-09-22：Sites 备份导入升级为大文件任务协议。浏览器读取 ZIP 中央目录，媒体逐文件上传，超过 24 MB 时按 8 MB 分片写入 R2；Worker 用 D1 暂存导入清单，全部上传后才发布正式回忆，失败时清理暂存对象。支持非 ZIP64、低于 4 GB、最多 500 段回忆和 2000 个媒体文件的备份；`npm run sites:import-smoke` 覆盖压缩 JSON、存储媒体和 multipart 分片流程。
+- 2026-09-22：根目录新增 Sites 托管构建入口 `npm run build`，在干净环境先安装 `frontend` 锁定依赖再生成 `dist`；npm lockfile 的下载地址统一为公共 npm 注册表，避免 Sites 拒绝非受支持依赖源。
 - 2026-09-21：OpenAI Sites 版本从静态入口升级为 Worker 后端，`.openai/hosting.json` 声明 D1/R2 逻辑绑定，`worker/index.js` 提供兼容 React 前端的页面和 JSON API；当前覆盖回忆文本 CRUD、回收站、相册读取、基础媒体上传和 Django 版备份 ZIP 导入，Sites 构建会用 esbuild 把 ZIP 解压依赖打包到 Worker，手机扫码上传和 Django Admin 尚未迁移。
 - 2026-05-05：修正登录/注册页用户名、邮箱和密码图标输入框的 focus 样式，点击后只显示外层高亮，不再出现内部重复描边。
 - 2026-05-05：回忆库时间线行点击后进入独立回忆详情页，详情页展示完整正文和全部照片/视频；心情筛选只显示真实填写过的心情，不再使用默认兜底标签。

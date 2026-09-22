@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "build": "npm ci --prefix frontend && npm run sites:build",
     "frontend:install": "npm install --prefix frontend",
     "frontend:dev": "npm run dev --prefix frontend",
     "frontend:build": "npm run build --prefix frontend",

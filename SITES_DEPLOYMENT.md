@@ -49,6 +49,8 @@ Sites 版目前覆盖回忆文本 CRUD、回收站、相册读取、基础媒体
 npm run sites:build
 ```
 
+托管平台从源码构建时使用根目录的 `npm run build`；该命令会先按 `frontend/package-lock.json` 安装前端依赖，再执行相同的 Sites 构建。两个 lockfile 的 `resolved` 地址必须来自受支持的公共 npm 注册表。
+
 这个命令会先构建 React 前端，再执行 `scripts/build-sites.mjs`，把发布所需文件放入 `dist/`。
 
 建议同时检查：
